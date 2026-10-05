@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* Semantic tokens, light by default, dark via system preference. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #dde3ea;
+  --fg: #0e1a2b;
+  --muted: #5b6b7f;
+  --brand: #ffc72c;
+  --brand-ink: #0e1a2b;
+  --brand-strong: #8a6400;
+  --navy: #0e1a2b;
+  --ok: #1f8a4c;
+  --warn: #b7791f;
+  --danger: #c53030;
+  --info: #2f6fb0;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1522;
+    --surface: #132134;
+    --surface-2: #1a2b42;
+    --border: #263a55;
+    --fg: #e7edf5;
+    --muted: #9fb0c4;
+    --brand-strong: #ffc72c;
+    --ok: #4cc283;
+    --warn: #f0b552;
+    --danger: #f07070;
+    --info: #6aa8e8;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-strong: var(--brand-strong);
+  --color-navy: var(--navy);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.maplibregl-popup-content {
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--surface) !important;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+    color: black;
+  }
+}
