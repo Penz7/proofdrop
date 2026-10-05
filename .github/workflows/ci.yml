@@ -64,7 +64,7 @@ jobs:
           --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       DATABASE_URL: postgresql://proofdrop:proofdrop@localhost:5432/proofdrop?schema=public
-      JWT_SECRET: ci-only-secret
+      JWT_SECRET: ci-only-secret-not-for-production
       STORAGE_DRIVER: local
       UPLOAD_DIR: ./uploads
     steps:
