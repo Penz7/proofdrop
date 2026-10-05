@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.ProofDrop" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/brand_navy</item>
+    </style>
+
+    <color name="brand_navy">#0E1A2B</color>
+    <color name="brand_amber">#FFC72C</color>
+</resources>

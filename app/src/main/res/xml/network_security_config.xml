@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The demo dispatch server runs over plain HTTP on a laptop (emulator host or LAN IP).
+  A production build would point at an HTTPS backend and drop this.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
