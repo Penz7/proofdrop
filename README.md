@@ -1,107 +1,144 @@
 # ProofDrop
 
-**Tamper-evident proof of delivery for Android.** Couriers photograph each drop-off. The app hashes the photo, tags it with GPS and an optional BLE beacon check, and seals it into an append-only hash chain. Any later edit, deletion or photo swap is caught on the device and again by the server.
+**Tamper-evident proof of delivery, end to end.** It has three parts:
 
-The app also covers the rest of a courier's shift: device check-out by QR code, a live fleet dashboard over WebSocket, and new orders pushed over Server-Sent Events. Everything works offline and syncs later.
+- An **Android app for couriers**. They photograph each drop-off, and the app hashes the photo, tags it with GPS and an optional BLE beacon check, and seals it into an append-only hash chain.
+- A **NestJS backend**. It re-verifies every record and photo before accepting it.
+- A **React dashboard for dispatchers**. They create and assign orders, watch the fleet live on a map, and audit any courier's evidence chain.
 
 > The same chain-of-custody idea that digital-evidence systems use, applied to last-mile delivery.
 
 [![CI](https://github.com/Penz7/proofdrop/actions/workflows/ci.yml/badge.svg)](https://github.com/Penz7/proofdrop/actions/workflows/ci.yml)
 
----
-
-## Features
-
-| | What it does | Tech |
-|---|---|---|
-| 📸 **Proof capture** | Full-screen camera. The photo goes to app-private storage and is SHA-256 hashed by streaming | CameraX (`LifecycleCameraController`) |
-| ⛓️ **Evidence ledger** | Each record stores the hash of the previous one. "Verify" re-hashes every photo and link and points to the exact record that was tampered with | Pure-Kotlin `core:evidence`, fully unit-tested |
-| 📡 **BLE beacon verification** | While the camera is open, the app scans for the drop-off beacon (e.g. an ESP32 advertising `PD-BEACON-01`). A strong enough RSSI marks the delivery as *beacon verified* | `BluetoothLeScanner` → `callbackFlow`, `neverForLocation` |
-| 🔐 **Device checkout** | Scan the QR sticker on a scanner, body cam or scooter to check it out or return it. Conflicts are resolved server-side | ML Kit barcode + CameraX `MlKitAnalyzer` |
-| 🗺️ **Live fleet dashboard** | Courier positions streamed over WebSocket and drawn on a Canvas mini-map. Falls back to a local simulation when offline | OkHttp WebSocket, Compose `Canvas` |
-| 🔔 **Push assignments** | The server pushes new orders as SSE. The client reconnects with backoff | OkHttp SSE, `retryWhen` |
-| ✈️ **Offline-first** | Room is the source of truth. Status changes, checkouts and uploads are queued and retried | Room, WorkManager + `@HiltWorker` |
-
-## Architecture
-
-```mermaid
-graph TD
-  app --> feature:orders & feature:capture & feature:checkout & feature:fleet
-  feature:orders & feature:capture & feature:checkout & feature:fleet --> core:data & core:designsystem
-  core:data --> core:database & core:network & core:ble & core:evidence
-  core:evidence --> core:model
-  core:network --> core:model
-  core:database --> core:model
-  server --> core:model & core:evidence
+```
+┌────────────────────┐   REST · SSE · WebSocket   ┌──────────────────────┐   ┌─────────────┐
+│ Android courier app│ ─────────────────────────▶ │ NestJS API  :3000    │──▶│ PostgreSQL  │
+│ Kotlin · Compose   │ ◀───── assignments (SSE)   │ JWT · Prisma · WS    │   └─────────────┘
+└────────────────────┘                            │                      │   ┌─────────────┐
+┌────────────────────┐   REST · SSE · WebSocket   │                      │──▶│ MinIO / S3  │
+│ Dispatcher web app │ ─────────────────────────▶ │                      │   │ (photos)    │
+│ React · MapLibre   │ ◀───── live fleet (WS)     └──────────────────────┘   └─────────────┘
+└────────────────────┘
 ```
 
-- **Modular by layer and feature.** Feature modules never see Room, Retrofit or OkHttp; they talk to repository interfaces in `core:data`.
-- **Shared contract.** `core:model` (pure Kotlin + kotlinx.serialization) is used by both the Android app and the Ktor server, so the API can't drift.
-- **Convention plugins** (`build-logic/`) keep each module's build file to a few lines.
-- **UDF / MVVM.** ViewModels expose `StateFlow` UI state plus a `Channel` for one-off messages. Screens are stateless composables.
-- **Type-safe navigation** with `@Serializable` routes.
+## What it does
 
-More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+| | Courier app (Android) | Backend / Dashboard |
+|---|---|---|
+| **Orders** | Offline-first list. New assignments are pushed over SSE and shown as notifications even when the app is in the background | Dispatcher creates an order (clicks the map to set the location) and assigns, reassigns or unassigns it |
+| **Proof of delivery** | CameraX photo → SHA-256 → sealed into the courier's hash chain → queued upload (WorkManager) | Re-hashes the uploaded photo, checks the seal and the link to the previous record, and stores the photo in S3 |
+| **BLE beacon** | While the camera is open, scans for the drop-off beacon and marks the delivery *beacon verified* when it's close enough | Badge on each evidence record |
+| **Shift** | A foreground service streams GPS to dispatch over a WebSocket | Live fleet map (MapLibre + OpenStreetMap) with online/offline state |
+| **Devices** | Scan a QR sticker to check out or return a scanner, body cam or scooter | Add devices and print QR sticker sheets. Conflicts are resolved server-side |
+| **Audit** | Ledger screen re-verifies the local chain and photos | "Verify chain" re-downloads every photo of a courier, re-hashes it, and points to the first broken record |
 
 ### How the evidence chain works
 
 ```
-record_n.hash = SHA256( seq | id | orderId | file | fileSha256 | time | lat | lng | ble | record_{n-1}.hash )
+record_n.hash = SHA256( seq | id | orderId | file | fileSha256 | time | latE7 | lngE7 | ble | record_{n-1}.hash )
 ```
+
+Kotlin (app) and TypeScript (server) must produce **byte-identical** hashes. Coordinates are encoded as integer 1e-7 degrees to avoid float-formatting differences, and both test suites assert the same test vector ([docs/API.md](docs/API.md)).
 
 | Attack | Caught by |
 |---|---|
-| Edit any field of a record | its hash no longer matches its contents |
-| Re-seal a forged record | the *next* record's `previousHash` link breaks |
+| Edit any field of a record | its hash no longer matches its contents (app and server) |
+| Re-seal a forged record | the next record's `previousHash` link breaks |
 | Delete a record | gap in sequence numbers |
-| Swap the photo file | re-hashed file ≠ `fileSha256` |
-| Upload a modified photo | server re-hashes the upload and rejects it with `422` |
+| Swap the photo on the phone | Ledger re-hash ≠ `fileSha256` |
+| Upload a different photo | server re-hash ≠ `fileSha256` → `422` |
+| Tamper with a photo in storage | dashboard "Verify chain" re-hashes it from S3 |
 
-Debug builds include a **"Simulate tampering"** button on the Ledger screen so you can demo this live.
+Each courier has one continuous chain on the server. After login, the app fetches the chain head and seals new records on top of it, so a reinstall or a new phone doesn't fork the chain.
 
 ## Tech stack
 
-Kotlin 2.2 · Jetpack Compose (Material 3) · Hilt · Coroutines/Flow · Room · WorkManager · Retrofit + OkHttp (REST, WebSocket, SSE) · kotlinx.serialization · CameraX · ML Kit · Bluetooth LE · Navigation Compose (type-safe) · Ktor 3 server · JUnit + Turbine · GitHub Actions
+| Part | Stack |
+|---|---|
+| Android | Kotlin 2.2, Jetpack Compose (Material 3), Hilt, Coroutines/Flow, Room, WorkManager, Retrofit + OkHttp (REST, WebSocket, SSE), kotlinx.serialization, CameraX, ML Kit, Bluetooth LE, MapLibre, type-safe Navigation, Android Keystore (encrypted token), foreground service |
+| Backend | NestJS 11, TypeScript, PostgreSQL 16 + Prisma, JWT (role guards), WebSocket (`ws`), SSE, S3 API (MinIO locally), Swagger, Jest + Supertest |
+| Dashboard | React 19, Vite, TypeScript, Tailwind CSS v4, TanStack Query, React Router, MapLibre GL, QR code generation |
+| Infra | Docker Compose, GitHub Actions (3 jobs: Android, backend with Postgres, dashboard) |
 
-## Running it
+## Run it locally
 
-**Requirements:** Android Studio (Narwhal or newer), JDK 17.
+**Requirements:** Docker Desktop, Node 24, JDK 17, Android Studio.
+
+### 1. Backend + dashboard
+
+Option A: everything in Docker:
 
 ```bash
-# 1. Start the dispatch server (REST + WebSocket + SSE) on :8080
-./gradlew :server:run
+docker compose up -d --build
+# API        http://localhost:3000/api      (Swagger: /api/docs)
+# Dashboard  http://localhost:8080
+```
 
-# 2. Install the app
+Option B: infrastructure in Docker, code running locally (hot reload):
+
+```bash
+docker compose up -d postgres minio
+cd backend && cp .env.example .env && npm install
+npx prisma migrate deploy && npx prisma db seed
+npm run start:dev                       # http://localhost:3000
+
+cd ../dashboard && npm install && npm run dev    # http://localhost:5173
+```
+
+### 2. Android app
+
+```bash
 ./gradlew :app:installDebug
 ```
 
-- **Emulator:** works out of the box (`http://10.0.2.2:8080`).
-- **Real phone:** Fleet tab → ⚙️ → `http://<your-computer-LAN-IP>:8080`.
-- **No server?** The app still runs fully on demo data with a simulated fleet, so reviewers can try it standalone.
+| Device | Server URL on the login screen |
+|---|---|
+| Emulator | `http://10.0.2.2:3000` (default) |
+| Phone over USB | run `adb reverse tcp:3000 tcp:3000`, then use `http://127.0.0.1:3000` |
+| Phone on the same Wi-Fi | `http://<your-PC-LAN-IP>:3000` |
 
-**Try it:**
-1. *Deliveries* → open `PD-1001` → **Capture proof of delivery** → take a photo.
-2. *Ledger* → the new record shows **Chain intact**. Tap **Simulate tampering** to see it flagged.
-3. *Devices* → **Scan QR** on a code containing `DEV-001` (generate one with any QR generator), or tap **Check out**.
-4. *Fleet* → watch couriers move live. Stop the server and it switches to the local simulation.
-5. Keep the server running: a new order arrives over SSE every 45 s.
+No server? Tap **Try demo mode** for sample data and a simulated fleet on the phone.
 
-**BLE beacon (optional):** flash an ESP32 with any BLE advertiser named `PD-BEACON-01` and keep it near the phone while capturing `PD-1001`.
+### Seed accounts (local only)
+
+| Role | Email | Password |
+|---|---|---|
+| Dispatcher (dashboard) | `dispatcher@proofdrop.dev` | `dispatch123` |
+| Courier (app) | `courier1@proofdrop.dev` (also `courier2`, `courier3`) | `courier123` |
+
+### Demo script
+
+1. Sign in on the dashboard as the dispatcher and on the app as courier1. Tap **Start shift** in the app; the courier appears live on the dashboard map.
+2. Dashboard → **New order** → click the map, pick courier1 → the phone gets a notification within a second.
+3. App → open the order → **Capture proof of delivery**. The record is sealed, uploaded and verified, and the order turns *Delivered* on the dashboard without a reload.
+4. Dashboard → **Evidence** → open the photo → **Verify chain** → intact.
+5. App → **Ledger** → **Simulate tampering** (debug builds) → the app flags the exact record.
 
 ## Testing
 
 ```bash
-./gradlew test
+./gradlew test                       # Android: hash chain, beacon matching, ViewModels (fakes + Turbine)
+cd backend && npm test               # chain (incl. shared test vector), order state machine
+cd backend && npm run test:e2e       # login → orders → evidence upload (valid + tampered) on real Postgres
+cd dashboard && npm run typecheck && npm run build
 ```
 
-- `core:evidence`: hash-chain sealing and every tamper case above
-- `core:ble`: beacon proximity matching
-- `feature:orders`: ViewModel state, offline badge and pushed assignments (fake repository + Turbine)
-- `server`: Ktor `testApplication`: seeded data, checkout conflicts, rejection of hash-mismatched uploads
+## Repository layout
 
-## Roadmap
+```
+app/                Android app module (navigation, Hilt, WorkManager setup)
+feature/*           auth · orders · capture (camera + ledger) · checkout (QR) · fleet (map)
+core/*              model · evidence (hash chain) · data · database · network · ble · designsystem
+build-logic/        Gradle convention plugins
+backend/            NestJS API + Prisma schema/migrations/seed
+dashboard/          React dispatcher dashboard
+docs/API.md         API contract shared by all three
+docs/ARCHITECTURE.md
+```
 
-- Video evidence (CameraX `VideoCapture`) with chunked, resumable upload
-- Signing each record with a hardware-backed Android Keystore key
-- Compose UI tests + baseline profile
-- Google Maps tiles for the fleet view
+## Known limitations
+
+- Single backend instance: realtime fan-out is in memory (Redis pub/sub is needed to scale out).
+- No refresh tokens (7-day JWT).
+- Public OpenStreetMap tiles are for demos only; use a tile provider in production.
+- Release builds use the debug signing key until a Play upload key is configured.

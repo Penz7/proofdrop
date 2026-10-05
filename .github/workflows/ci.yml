@@ -10,9 +10,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  android:
+    name: Android app
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -23,7 +24,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Unit tests (app modules + server)
+      - name: Unit tests
         run: ./gradlew test --stacktrace
 
       - name: Assemble debug + minified release
@@ -39,5 +40,67 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: android-test-reports
           path: '**/build/reports/tests/'
+
+  backend:
+    name: Backend (NestJS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: proofdrop
+          POSTGRES_PASSWORD: proofdrop
+          POSTGRES_DB: proofdrop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U proofdrop -d proofdrop"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://proofdrop:proofdrop@localhost:5432/proofdrop?schema=public
+      JWT_SECRET: ci-only-secret
+      STORAGE_DRIVER: local
+      UPLOAD_DIR: ./uploads
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npx prisma db seed
+      - run: npm run build
+      - name: Unit tests (incl. Kotlin ↔ TypeScript hash vector)
+        run: npm test
+      - name: e2e tests against Postgres
+        run: npm run test:e2e
+
+  dashboard:
+    name: Dispatcher dashboard (React)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
