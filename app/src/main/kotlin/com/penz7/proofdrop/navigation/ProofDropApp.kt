@@ -1,5 +1,7 @@
 package com.penz7.proofdrop.navigation
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -50,7 +52,10 @@ fun ProofDropApp(navController: NavHostController = rememberNavController()) {
     val destination = backStackEntry?.destination
     val showBottomBar = TopLevel.entries.any { top -> destination?.hasRoute(top.routeClass) == true }
 
+    // Each screen draws its own top bar and handles the status bar inset itself;
+    // this outer Scaffold only reserves room for the bottom navigation.
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar {
@@ -72,10 +77,11 @@ fun ProofDropApp(navController: NavHostController = rememberNavController()) {
             }
         },
     ) { padding ->
+        val bottom = PaddingValues(bottom = padding.calculateBottomPadding())
         NavHost(
             navController = navController,
             startDestination = OrdersDestination,
-            modifier = Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding()).consumeWindowInsets(padding),
+            modifier = Modifier.fillMaxSize().padding(bottom).consumeWindowInsets(bottom),
         ) {
             ordersScreens(
                 onOpenOrder = { navController.navigate(OrderDetailDestination(it)) },

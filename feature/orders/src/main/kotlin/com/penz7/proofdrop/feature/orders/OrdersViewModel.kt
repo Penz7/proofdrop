@@ -21,6 +21,8 @@ data class OrdersUiState(
     val isRefreshing: Boolean = false,
     /** null until the first refresh finishes. */
     val online: Boolean? = null,
+    /** True until the first database read, so the empty state never flashes on launch. */
+    val isLoading: Boolean = false,
 )
 
 @HiltViewModel
@@ -32,8 +34,9 @@ class OrdersViewModel @Inject constructor(
     private val online = MutableStateFlow<Boolean?>(null)
 
     val uiState: StateFlow<OrdersUiState> =
-        combine(repository.observeOrders(), refreshing, online, ::OrdersUiState)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OrdersUiState())
+        combine(repository.observeOrders(), refreshing, online) { orders, refreshing, online ->
+            OrdersUiState(orders, refreshing, online)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OrdersUiState(isLoading = true))
 
     private val _messages = Channel<String>(Channel.BUFFERED)
     /** One-off messages for a snackbar, e.g. a newly pushed assignment. */

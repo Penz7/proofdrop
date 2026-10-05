@@ -85,7 +85,9 @@ internal fun OrdersScreen(
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            if (state.orders.isEmpty() && !state.isRefreshing) {
+            if (state.isLoading) {
+                Unit
+            } else if (state.orders.isEmpty() && !state.isRefreshing) {
                 EmptyState(Icons.Outlined.Inventory2, "No deliveries", "Pull down to check for new assignments.")
             } else {
                 LazyColumn(
