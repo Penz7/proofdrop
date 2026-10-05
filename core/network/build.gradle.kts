@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.proofdrop.android.library)
     alias(libs.plugins.proofdrop.android.hilt)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {

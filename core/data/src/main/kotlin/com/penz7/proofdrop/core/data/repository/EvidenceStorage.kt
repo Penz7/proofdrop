@@ -14,4 +14,8 @@ class EvidenceStorage @Inject constructor(@ApplicationContext context: Context) 
     fun newFile(name: String): File = File(dir, name)
 
     fun file(name: String): File = File(dir, name)
+
+    fun deleteAll() {
+        dir.listFiles()?.forEach { it.delete() }
+    }
 }

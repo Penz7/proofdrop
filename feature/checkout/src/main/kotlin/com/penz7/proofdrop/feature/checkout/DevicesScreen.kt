@@ -54,7 +54,6 @@ import com.penz7.proofdrop.core.designsystem.component.StatusChip
 import com.penz7.proofdrop.core.designsystem.theme.DangerRed
 import com.penz7.proofdrop.core.designsystem.theme.InfoBlue
 import com.penz7.proofdrop.core.designsystem.theme.SuccessGreen
-import com.penz7.proofdrop.core.model.CurrentCourier
 import com.penz7.proofdrop.core.model.Device
 import com.penz7.proofdrop.core.model.DeviceType
 import kotlinx.serialization.Serializable
@@ -86,7 +85,7 @@ internal fun DevicesRoute(viewModel: DevicesViewModel = hiltViewModel()) {
             }
         }
     } else {
-        DevicesScreen(devices, snackbar, onScan = viewModel::startScan, onToggle = viewModel::toggle)
+        DevicesScreen(devices, viewModel.myId, snackbar, onScan = viewModel::startScan, onToggle = viewModel::toggle)
     }
 }
 
@@ -94,6 +93,7 @@ internal fun DevicesRoute(viewModel: DevicesViewModel = hiltViewModel()) {
 @Composable
 private fun DevicesScreen(
     devices: List<Device>,
+    myId: String?,
     snackbar: SnackbarHostState,
     onScan: () -> Unit,
     onToggle: (String) -> Unit,
@@ -109,7 +109,7 @@ private fun DevicesScreen(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        val mine = devices.count { it.holderId == CurrentCourier.ID }
+        val mine = devices.count { it.holderId != null && it.holderId == myId }
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp),
@@ -122,14 +122,13 @@ private fun DevicesScreen(
                     color = MaterialTheme.colorScheme.secondary,
                 )
             }
-            items(devices, key = { it.id }) { DeviceCard(it, onToggle) }
+            items(devices, key = { it.id }) { DeviceCard(it, mine = it.holderId != null && it.holderId == myId, onToggle) }
         }
     }
 }
 
 @Composable
-private fun DeviceCard(device: Device, onToggle: (String) -> Unit) {
-    val mine = device.holderId == CurrentCourier.ID
+private fun DeviceCard(device: Device, mine: Boolean, onToggle: (String) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(device.type.icon, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)

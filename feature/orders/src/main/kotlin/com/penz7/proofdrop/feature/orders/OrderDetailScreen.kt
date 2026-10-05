@@ -1,5 +1,7 @@
 package com.penz7.proofdrop.feature.orders
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -30,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -88,7 +93,7 @@ private fun OrderDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(order?.id ?: "Order") },
+                title = { Text(order?.code ?: "Order") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 },
@@ -111,6 +116,7 @@ private fun OrderDetailScreen(
                         StatusChip(order.status.label, order.status.color)
                     }
                     Detail("Address", order.address)
+                    order.customerPhone?.let { Detail("Phone", it) }
                     Detail("Items", order.items)
                     Detail("Coordinates", "%.5f, %.5f".format(order.latitude, order.longitude))
                     Detail("Drop-off beacon", order.beaconId ?: "None. Photo + GPS proof only")
@@ -118,9 +124,31 @@ private fun OrderDetailScreen(
                 }
             }
 
+            val context = LocalContext.current
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    // Hands off to whatever maps app the courier uses.
+                    val uri = Uri.parse("geo:${order.latitude},${order.longitude}?q=${order.latitude},${order.longitude}(${Uri.encode(order.code)})")
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                }) {
+                    Icon(Icons.Filled.Directions, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Navigate")
+                }
+                order.customerPhone?.let { phone ->
+                    OutlinedButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))) }
+                    }) {
+                        Icon(Icons.Filled.Call, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Call")
+                    }
+                }
+            }
+
             when (order.status) {
-                OrderStatus.ASSIGNED, OrderStatus.PICKED_UP -> {
-                    if (order.status == OrderStatus.ASSIGNED) {
+                OrderStatus.CREATED, OrderStatus.ASSIGNED, OrderStatus.PICKED_UP -> {
+                    if (order.status != OrderStatus.PICKED_UP) {
                         FilledTonalButton(onClick = { onSetStatus(OrderStatus.PICKED_UP) }, modifier = Modifier.fillMaxWidth()) {
                             Text("Mark picked up")
                         }

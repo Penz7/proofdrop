@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import com.penz7.proofdrop.core.designsystem.camera.useBestAvailableCamera
 
 /** Camera preview that reports the first QR code it sees. Runs fully on-device (ML Kit). */
 @Composable
@@ -50,7 +51,10 @@ internal fun QrScanner(onCode: (String) -> Unit, modifier: Modifier = Modifier) 
             )
         }
     }
-    LaunchedEffect(lifecycleOwner) { controller.bindToLifecycle(lifecycleOwner) }
+    LaunchedEffect(lifecycleOwner) {
+        controller.useBestAvailableCamera(context)
+        controller.bindToLifecycle(lifecycleOwner)
+    }
     DisposableEffect(Unit) {
         onDispose {
             controller.unbind()

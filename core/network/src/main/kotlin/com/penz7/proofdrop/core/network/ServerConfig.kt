@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 /**
  * Where the dispatch server lives. Defaults to the host machine as seen from the emulator;
- * on a real phone, set it to your computer's LAN IP from the Fleet screen.
+ * on a real phone, set it to your computer LAN IP (or 127.0.0.1 with `adb reverse tcp:3000 tcp:3000`) on the login screen.
  */
 @Singleton
 class ServerConfig @Inject constructor(@ApplicationContext context: Context) {
@@ -31,7 +31,7 @@ class ServerConfig @Inject constructor(@ApplicationContext context: Context) {
     }
 
     companion object {
-        const val DEFAULT_URL = "http://10.0.2.2:8080"
+        const val DEFAULT_URL = "http://10.0.2.2:3000"
         private const val KEY = "base_url"
     }
 }

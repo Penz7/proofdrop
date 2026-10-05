@@ -14,11 +14,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -27,6 +33,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.penz7.proofdrop.BuildConfig
+import com.penz7.proofdrop.feature.auth.LoginDestination
+import com.penz7.proofdrop.feature.auth.loginScreen
 import com.penz7.proofdrop.feature.capture.CaptureDestination
 import com.penz7.proofdrop.feature.capture.LedgerDestination
 import com.penz7.proofdrop.feature.capture.captureScreens
@@ -47,7 +55,30 @@ private enum class TopLevel(val label: String, val icon: ImageVector, val route:
 }
 
 @Composable
-fun ProofDropApp(navController: NavHostController = rememberNavController()) {
+fun ProofDropApp(
+    navController: NavHostController = rememberNavController(),
+    viewModel: MainViewModel = hiltViewModel(),
+) {
+    val user by viewModel.currentUser.collectAsStateWithLifecycle()
+    val signedIn = user != null
+    // Fixed for the NavHost's lifetime; later sign-in/out is handled by navigating below.
+    val startDestination: Any = remember { if (signedIn) OrdersDestination else LoginDestination }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+
+    // The session decides the root: signing in or out replaces the whole back stack.
+    LaunchedEffect(signedIn) {
+        val target: Any = if (signedIn) OrdersDestination else LoginDestination
+        val current = navController.currentBackStackEntry?.destination
+        val alreadyThere = current?.hasRoute(if (signedIn) OrdersDestination::class else LoginDestination::class) == true
+        if (current != null && !alreadyThere) {
+            navController.navigate(target) {
+                popUpTo(navController.graph.id) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = backStackEntry?.destination
     val showBottomBar = TopLevel.entries.any { top -> destination?.hasRoute(top.routeClass) == true }
@@ -56,6 +87,7 @@ fun ProofDropApp(navController: NavHostController = rememberNavController()) {
     // this outer Scaffold only reserves room for the bottom navigation.
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar {
@@ -80,9 +112,10 @@ fun ProofDropApp(navController: NavHostController = rememberNavController()) {
         val bottom = PaddingValues(bottom = padding.calculateBottomPadding())
         NavHost(
             navController = navController,
-            startDestination = OrdersDestination,
+            startDestination = startDestination,
             modifier = Modifier.fillMaxSize().padding(bottom).consumeWindowInsets(bottom),
         ) {
+            loginScreen(showDevHints = BuildConfig.DEBUG)
             ordersScreens(
                 onOpenOrder = { navController.navigate(OrderDetailDestination(it)) },
                 onCaptureProof = { navController.navigate(CaptureDestination(it)) },

@@ -9,4 +9,6 @@ android {
 
 dependencies {
     implementation(libs.androidx.activity.compose)
+    api(libs.androidx.camera.view)
+    implementation(libs.kotlinx.coroutines.core)
 }

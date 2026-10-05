@@ -12,14 +12,19 @@ import com.penz7.proofdrop.core.model.OrderStatus
 @Entity(tableName = "orders")
 data class OrderEntity(
     @PrimaryKey val id: String,
+    val code: String,
     val customerName: String,
+    val customerPhone: String?,
     val address: String,
     val latitude: Double,
     val longitude: Double,
     val items: String,
     val status: OrderStatus,
     val beaconId: String?,
+    val courierId: String?,
+    val courierName: String?,
     val assignedAt: Long,
+    val deliveredAt: Long?,
     /** Local status change not yet acknowledged by the server. */
     val pendingSync: Boolean = false,
 )
@@ -58,9 +63,14 @@ data class DeviceEntity(
     val pendingAction: PendingDeviceAction? = null,
 )
 
-fun OrderEntity.toModel() = Order(id, customerName, address, latitude, longitude, items, status, beaconId, assignedAt)
-fun Order.toEntity(pendingSync: Boolean = false) =
-    OrderEntity(id, customerName, address, latitude, longitude, items, status, beaconId, assignedAt, pendingSync)
+fun OrderEntity.toModel() = Order(
+    id, code, customerName, customerPhone, address, latitude, longitude, items, status,
+    beaconId, courierId, courierName, assignedAt, deliveredAt,
+)
+fun Order.toEntity(pendingSync: Boolean = false) = OrderEntity(
+    id, code, customerName, customerPhone, address, latitude, longitude, items, status,
+    beaconId, courierId, courierName, assignedAt, deliveredAt, pendingSync,
+)
 
 fun EvidenceEntity.toModel() = EvidenceRecord(
     id, sequence, orderId, fileName, fileSha256, capturedAt, latitude, longitude, bleVerified, previousHash, recordHash,

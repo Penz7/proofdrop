@@ -32,11 +32,21 @@ interface OrderDao {
     @Upsert
     suspend fun upsert(orders: List<OrderEntity>)
 
-    /** Server wins, except for rows with unsynced local changes. */
+    @Query("DELETE FROM orders WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM orders WHERE id NOT IN (:keep) AND pendingSync = 0")
+    suspend fun deleteAllExcept(keep: List<String>)
+
+    /**
+     * The server's list is the truth (orders can be reassigned away from us),
+     * except for rows with unsynced local changes.
+     */
     @Transaction
     suspend fun mergeFromServer(remote: List<OrderEntity>) {
         val pendingIds = pending().mapTo(HashSet()) { it.id }
         upsert(remote.filterNot { it.id in pendingIds })
+        deleteAllExcept(remote.map { it.id })
     }
 }
 

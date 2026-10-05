@@ -13,10 +13,10 @@ import com.penz7.proofdrop.core.database.UploadState
 import com.penz7.proofdrop.core.database.toEntity
 import com.penz7.proofdrop.core.database.toModel
 import com.penz7.proofdrop.core.model.CheckoutRequest
-import com.penz7.proofdrop.core.model.CurrentCourier
 import com.penz7.proofdrop.core.model.EvidenceUploadResult
 import com.penz7.proofdrop.core.model.OrderStatusUpdate
 import com.penz7.proofdrop.core.network.ProofDropApi
+import com.penz7.proofdrop.core.network.session.SessionStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.serialization.json.Json
@@ -36,48 +36,61 @@ class SyncWorker @AssistedInject constructor(
     private val deviceDao: DeviceDao,
     private val evidenceDao: EvidenceDao,
     private val storage: EvidenceStorage,
+    private val session: SessionStore,
     private val api: ProofDropApi,
     private val json: Json,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result = try {
-        syncOrders()
-        syncDevices()
-        uploadEvidence()
-        Result.success()
-    } catch (e: IOException) {
-        Result.retry()
+    override suspend fun doWork(): Result {
+        val current = session.session.value
+        if (current == null || current.demo) return Result.success()
+        return try {
+            syncOrders()
+            syncDevices(current.user.id, current.user.name)
+            uploadEvidence()
+            Result.success()
+        } catch (e: IOException) {
+            Result.retry()
+        } catch (e: HttpException) {
+            // 401: the session is gone and the UI is returning to login; nothing to retry.
+            if (e.code() == 401) Result.failure() else Result.retry()
+        }
     }
 
     private suspend fun syncOrders() {
         for (order in orderDao.pending()) {
             try {
-                api.updateStatus(order.id, OrderStatusUpdate(order.status, System.currentTimeMillis()))
+                val confirmed = api.updateStatus(order.id, OrderStatusUpdate(order.status, System.currentTimeMillis()))
+                orderDao.markSynced(order.id)
+                orderDao.upsert(listOf(confirmed.toEntity()))
             } catch (e: HttpException) {
-                // Server doesn't know this order (e.g. demo data); keep the local state.
+                if (e.code() == 401) throw e
+                // 404/409: reassigned or an invalid transition. Drop the local change; the next refresh corrects it.
+                orderDao.markSynced(order.id)
             }
-            orderDao.markSynced(order.id)
         }
     }
 
-    private suspend fun syncDevices() {
+    private suspend fun syncDevices(myId: String, myName: String) {
         for (device in deviceDao.pending()) {
             val confirmed = try {
                 when (device.pendingAction) {
                     PendingDeviceAction.CHECKOUT -> api.checkout(
                         device.id,
-                        CheckoutRequest(CurrentCourier.ID, CurrentCourier.NAME, device.checkedOutAt ?: System.currentTimeMillis()),
+                        CheckoutRequest(myId, myName, device.checkedOutAt ?: System.currentTimeMillis()),
                     )
                     PendingDeviceAction.RETURN -> api.returnDevice(device.id)
                     null -> continue
                 }
             } catch (e: HttpException) {
+                if (e.code() == 401) throw e
                 device.toModel()
             }
             deviceDao.upsert(listOf(confirmed.toEntity()))
         }
     }
 
+    /** In sequence order: the server needs record n-1 before it accepts record n. */
     private suspend fun uploadEvidence() {
         for (entity in evidenceDao.pendingUpload()) {
             val file = storage.file(entity.fileName)
@@ -97,7 +110,9 @@ class SyncWorker @AssistedInject constructor(
                         ?.let { runCatching { json.decodeFromString<EvidenceUploadResult>(it).message }.getOrNull() }
                     evidenceDao.setUploadState(entity.id, UploadState.REJECTED, reason ?: "Rejected by server")
                 }
-                else -> throw IOException("Upload failed with HTTP ${response.code()}")
+                response.code() == 401 -> throw HttpException(response)
+                // 409 (previous record not there yet) or a server error: try again later, keep the order.
+                else -> throw IOException("Upload of #${entity.sequence} failed with HTTP ${response.code()}")
             }
         }
     }

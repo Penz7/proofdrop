@@ -54,6 +54,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.penz7.proofdrop.core.designsystem.camera.useBestAvailableCamera
 import com.penz7.proofdrop.core.designsystem.component.PermissionGate
 import com.penz7.proofdrop.core.designsystem.component.StatusChip
 import com.penz7.proofdrop.core.designsystem.theme.DangerRed
@@ -105,7 +106,10 @@ private fun CaptureScreen(
     val controller = remember {
         LifecycleCameraController(context).apply { setEnabledUseCases(CameraController.IMAGE_CAPTURE) }
     }
-    LaunchedEffect(lifecycleOwner) { controller.bindToLifecycle(lifecycleOwner) }
+    LaunchedEffect(lifecycleOwner) {
+        controller.useBestAvailableCamera(context)
+        controller.bindToLifecycle(lifecycleOwner)
+    }
 
     fun takePhoto() {
         val file = newFile()
@@ -114,7 +118,8 @@ private fun CaptureScreen(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) = onPhotoSaved(file)
-                override fun onError(exception: ImageCaptureException) = onCaptureError(exception.message)
+                override fun onError(exception: ImageCaptureException) =
+                    onCaptureError("Could not take the photo. Is a camera available? (${exception.imageCaptureError})")
             },
         )
     }
@@ -137,7 +142,7 @@ private fun CaptureScreen(
             Spacer(Modifier.width(8.dp))
             Surface(color = Color.Black.copy(alpha = 0.55f), contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Text(state.order?.id ?: "…", fontWeight = FontWeight.Bold)
+                    Text(state.order?.code ?: "…", fontWeight = FontWeight.Bold)
                     Text(state.order?.address ?: "", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -179,12 +184,12 @@ private fun BeaconBadge(beacon: BeaconUi) {
         is BeaconUi.Searching -> Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.BluetoothSearching, null, tint = Color.White)
             Spacer(Modifier.width(4.dp))
-            StatusChip("Searching beacon · ${beacon.nearbyDevices} nearby", InfoBlue)
+            StatusChip("Beacon… ${beacon.nearbyDevices} nearby", InfoBlue)
         }
         is BeaconUi.Verified -> Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Bluetooth, null, tint = SuccessGreen)
             Spacer(Modifier.width(4.dp))
-            StatusChip("Beacon verified · ${beacon.rssi} dBm", SuccessGreen)
+            StatusChip("Beacon ✓ ${beacon.rssi} dBm", SuccessGreen)
         }
     }
 }

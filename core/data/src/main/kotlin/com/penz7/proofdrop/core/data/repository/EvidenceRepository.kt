@@ -1,19 +1,22 @@
 package com.penz7.proofdrop.core.data.repository
 
-import com.penz7.proofdrop.core.data.LocationProvider
+import com.penz7.proofdrop.core.data.LocationTracker
 import com.penz7.proofdrop.core.data.sync.SyncScheduler
 import com.penz7.proofdrop.core.database.EvidenceDao
+import com.penz7.proofdrop.core.database.OrderDao
 import com.penz7.proofdrop.core.database.toEntity
 import com.penz7.proofdrop.core.database.toModel
+import com.penz7.proofdrop.core.evidence.ChainAnchor
 import com.penz7.proofdrop.core.evidence.ChainVerification
 import com.penz7.proofdrop.core.evidence.EvidenceChain
 import com.penz7.proofdrop.core.evidence.Sha256
 import com.penz7.proofdrop.core.model.EvidenceDraft
 import com.penz7.proofdrop.core.model.EvidenceRecord
 import com.penz7.proofdrop.core.model.OrderStatus
+import com.penz7.proofdrop.core.network.session.SessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -24,7 +27,13 @@ import javax.inject.Singleton
 
 enum class UploadStatus { PENDING, UPLOADED, REJECTED }
 
-data class LedgerEntry(val record: EvidenceRecord, val upload: UploadStatus, val message: String?)
+data class LedgerEntry(
+    val record: EvidenceRecord,
+    /** Human order code (e.g. PD-1001) when the order is still on this phone. */
+    val orderCode: String?,
+    val upload: UploadStatus,
+    val message: String?,
+)
 
 interface EvidenceRepository {
     fun observeLedger(): Flow<List<LedgerEntry>>
@@ -45,24 +54,33 @@ interface EvidenceRepository {
 @Singleton
 class ChainedEvidenceRepository @Inject constructor(
     private val dao: EvidenceDao,
+    private val orderDao: OrderDao,
     private val storage: EvidenceStorage,
     private val orders: OrderRepository,
-    private val location: LocationProvider,
+    private val location: LocationTracker,
+    private val session: SessionStore,
     private val syncScheduler: SyncScheduler,
 ) : EvidenceRepository {
 
     // Sealing reads the last record then appends; must not interleave.
     private val sealMutex = Mutex()
 
-    override fun observeLedger(): Flow<List<LedgerEntry>> = dao.observeAll().map { list ->
-        list.map { LedgerEntry(it.toModel(), UploadStatus.valueOf(it.uploadState.name), it.uploadMessage) }
-    }
+    /** The server-side chain head at login: local records continue from it. */
+    private fun loginAnchor() = session.chainHead.let { ChainAnchor(it.sequence, it.recordHash) }
+
+    override fun observeLedger(): Flow<List<LedgerEntry>> =
+        combine(dao.observeAll(), orderDao.observeAll()) { evidence, orders ->
+            val codes = orders.associate { it.id to it.code }
+            evidence.map {
+                LedgerEntry(it.toModel(), codes[it.orderId], UploadStatus.valueOf(it.uploadState.name), it.uploadMessage)
+            }
+        }
 
     override fun newCaptureFile(): File = storage.newFile("${UUID.randomUUID()}.jpg")
 
     override suspend fun sealDelivery(orderId: String, photo: File, bleVerified: Boolean): EvidenceRecord {
         val fileHash = withContext(Dispatchers.IO) { Sha256.of(photo.inputStream()) }
-        val fix = location.lastKnown()
+        val fix = location.current()
         val record = sealMutex.withLock {
             val draft = EvidenceDraft(
                 id = photo.nameWithoutExtension,
@@ -74,7 +92,8 @@ class ChainedEvidenceRepository @Inject constructor(
                 longitude = fix?.longitude,
                 bleVerified = bleVerified,
             )
-            EvidenceChain.seal(draft, dao.last()?.toModel()).also { dao.insert(it.toEntity()) }
+            val anchor = dao.last()?.let { ChainAnchor(it.sequence, it.recordHash) } ?: loginAnchor()
+            EvidenceChain.seal(draft, anchor).also { dao.insert(it.toEntity()) }
         }
         orders.updateStatus(orderId, OrderStatus.DELIVERED)
         syncScheduler.requestSync()
@@ -82,7 +101,7 @@ class ChainedEvidenceRepository @Inject constructor(
     }
 
     override suspend fun verifyLedger(): ChainVerification = withContext(Dispatchers.IO) {
-        EvidenceChain.verify(dao.all().map { it.toModel() }) { record ->
+        EvidenceChain.verify(dao.all().map { it.toModel() }, loginAnchor()) { record ->
             storage.file(record.fileName).takeIf { it.exists() }?.let { Sha256.of(it.inputStream()) }
         }
     }

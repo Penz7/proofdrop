@@ -15,6 +15,7 @@ dependencies {
     implementation(projects.core.network)
 
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)

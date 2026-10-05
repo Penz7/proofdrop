@@ -2,6 +2,7 @@ package com.penz7.proofdrop.feature.checkout
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.penz7.proofdrop.core.data.auth.AuthRepository
 import com.penz7.proofdrop.core.data.repository.DeviceRepository
 import com.penz7.proofdrop.core.data.repository.ToggleResult
 import com.penz7.proofdrop.core.model.Device
@@ -19,7 +20,11 @@ import javax.inject.Inject
 @HiltViewModel
 class DevicesViewModel @Inject constructor(
     private val repository: DeviceRepository,
+    auth: AuthRepository,
 ) : ViewModel() {
+
+    /** Id of the signed-in courier, to tell "with you" apart from "with someone else". */
+    val myId: String? = auth.currentUser.value?.user?.id
 
     val devices: StateFlow<List<Device>> = repository.observeDevices()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

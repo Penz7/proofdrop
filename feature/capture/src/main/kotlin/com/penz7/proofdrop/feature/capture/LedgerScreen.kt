@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -173,8 +174,14 @@ private fun EntryCard(entry: LedgerEntry) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("#${r.sequence} · ${r.orderId}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
+                Text(
+                    "#${r.sequence} · ${entry.orderCode ?: r.orderId.take(8)}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
                 if (r.latitude != null) Icon(Icons.Outlined.LocationOn, "GPS tagged", Modifier.size(16.dp))
                 if (r.bleVerified) Icon(Icons.Outlined.Bluetooth, "Beacon verified", Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))

@@ -15,8 +15,10 @@ data class CourierPosition(
 @Serializable
 enum class CourierStatus { IDLE, EN_ROUTE, DELIVERING, OFFLINE }
 
-/** The courier using this phone. A real build would get this from auth. */
-object CurrentCourier {
-    const val ID = "courier-07"
-    const val NAME = "Courier #07"
-}
+/** What a courier reports over the fleet WebSocket; the server fills in identity and time. */
+@Serializable
+data class PositionReport(
+    val latitude: Double,
+    val longitude: Double,
+    val status: CourierStatus = CourierStatus.EN_ROUTE,
+)

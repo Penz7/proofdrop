@@ -1,5 +1,6 @@
 package com.penz7.proofdrop.core.network
 
+import com.penz7.proofdrop.core.network.session.SessionStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -8,6 +9,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.internal.platform.Platform
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -23,15 +25,17 @@ object NetworkModule {
     fun json(): Json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     @Provides
     @Singleton
-    fun okHttp(config: ServerConfig): OkHttpClient = OkHttpClient.Builder()
+    fun okHttp(config: ServerConfig, session: SessionStore): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(baseUrlInterceptor(config))
-        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+        .addInterceptor(authInterceptor(session))
+        .addInterceptor(loggingInterceptor())
         .build()
 
     @Provides
@@ -59,6 +63,27 @@ object NetworkModule {
         chain.proceed(request.newBuilder().url(url).build())
     }
 
+    /** Adds the bearer token and reports 401s so the app can return to the login screen. */
+    internal fun authInterceptor(session: SessionStore) = Interceptor { chain ->
+        val token = session.token
+        val request = if (token != null && chain.request().header("Authorization") == null) {
+            chain.request().newBuilder().header("Authorization", "Bearer $token").build()
+        } else {
+            chain.request()
+        }
+        chain.proceed(request).also { response ->
+            val isLogin = request.url.encodedPath.endsWith("/auth/login")
+            if (response.code == 401 && !isLogin) session.onUnauthorized()
+        }
+    }
+
+    /** BASIC request logs, with the JWT stripped from WebSocket/SSE query strings. */
+    private fun loggingInterceptor() = HttpLoggingInterceptor { message ->
+        Platform.get().log(message.replace(TOKEN_IN_URL, "access_token=***"))
+    }.apply { level = HttpLoggingInterceptor.Level.BASIC }
+
+    private val TOKEN_IN_URL = Regex("""access_token=[^&\s]+""")
+
     private const val PLACEHOLDER_HOST = "proofdrop.placeholder"
-    private const val PLACEHOLDER_URL = "http://$PLACEHOLDER_HOST/"
+    private const val PLACEHOLDER_URL = "http://$PLACEHOLDER_HOST/api/"
 }
