@@ -1,0 +1,109 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  COURIER
+  DISPATCHER
+}
+
+enum OrderStatus {
+  CREATED
+  ASSIGNED
+  PICKED_UP
+  DELIVERED
+  FAILED
+}
+
+enum DeviceType {
+  SCANNER
+  BODY_CAM
+  PRINTER
+  VEHICLE
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         Role
+  // Last reported fleet position, so the dashboard has something after a restart.
+  lastLat      Float?
+  lastLng      Float?
+  lastStatus   String?
+  lastSeenAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  orders   Order[]
+  devices  Device[]
+  evidence Evidence[]
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  // Rendered as "PD-<1000 + codeNumber>".
+  codeNumber    Int         @unique @default(autoincrement())
+  customerName  String
+  customerPhone String?
+  address       String
+  latitude      Float
+  longitude     Float
+  items         String
+  status        OrderStatus @default(CREATED)
+  beaconId      String?
+  courierId     String?
+  courier       User?       @relation(fields: [courierId], references: [id])
+  assignedAt    DateTime?
+  deliveredAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  evidence Evidence[]
+
+  @@index([courierId, status])
+}
+
+model Device {
+  id           String     @id
+  name         String
+  type         DeviceType
+  serial       String
+  batteryPct   Int
+  holderId     String?
+  holder       User?      @relation(fields: [holderId], references: [id])
+  checkedOutAt DateTime?
+  createdAt    DateTime   @default(now())
+}
+
+model Evidence {
+  // Client-generated UUID; also the idempotency key for retried uploads.
+  id           String   @id
+  courierId    String
+  courier      User     @relation(fields: [courierId], references: [id])
+  sequence     Int
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id])
+  fileName     String
+  fileSha256   String
+  capturedAt   BigInt
+  latitude     Float?
+  longitude    Float?
+  bleVerified  Boolean
+  previousHash String
+  recordHash   String
+  storageKey   String
+  sizeBytes    Int
+  contentType  String
+  receivedAt   DateTime @default(now())
+
+  // One continuous chain per courier.
+  @@unique([courierId, sequence])
+  @@index([orderId])
+}

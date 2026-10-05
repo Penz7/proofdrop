@@ -13,3 +13,10 @@ build/
 *.jks
 *.keystore
 keystore.properties
+
+# Node (backend + dashboard)
+node_modules/
+dist/
+*.tsbuildinfo
+backend/uploads/
+.env
