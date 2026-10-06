@@ -94,6 +94,11 @@ function Badges({ item }: { item: EvidenceItem }) {
     <div className="flex flex-wrap gap-1.5">
       {item.latitude != null ? <Badge tone="info">GPS</Badge> : <Badge>No GPS</Badge>}
       {item.bleVerified ? <Badge tone="ok">Beacon verified</Badge> : <Badge>No beacon</Badge>}
+      {!item.orderMatched && (
+        <span title="The order was cancelled or reassigned when this proof arrived. It is kept in the courier's chain but did not complete the order.">
+          <Badge tone="warn">Needs review</Badge>
+        </span>
+      )}
     </div>
   );
 }

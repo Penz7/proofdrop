@@ -1,7 +1,7 @@
 // Mirrors docs/API.md. All timestamps are epoch milliseconds.
 
 export type Role = "COURIER" | "DISPATCHER";
-export type OrderStatus = "CREATED" | "ASSIGNED" | "PICKED_UP" | "DELIVERED" | "FAILED";
+export type OrderStatus = "CREATED" | "ASSIGNED" | "PICKED_UP" | "DELIVERED" | "FAILED" | "CANCELLED";
 export type DeviceType = "SCANNER" | "BODY_CAM" | "PRINTER" | "VEHICLE";
 export type CourierStatus = "IDLE" | "EN_ROUTE" | "DELIVERING" | "OFFLINE";
 
@@ -75,6 +75,8 @@ export interface EvidenceItem {
   orderCode: string;
   receivedAt: number;
   sizeBytes: number;
+  /** False when the order was cancelled or reassigned when this proof arrived: needs review. */
+  orderMatched: boolean;
 }
 
 export type ChainVerification =

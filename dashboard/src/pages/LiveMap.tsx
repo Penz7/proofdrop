@@ -31,7 +31,7 @@ export function LiveMapPage() {
   const markers = useMemo<MapMarker[]>(() => {
     const out: MapMarker[] = [];
     for (const o of orders.data ?? []) {
-      if (o.status === "DELIVERED" || o.status === "FAILED") continue;
+      if (o.status === "DELIVERED" || o.status === "FAILED" || o.status === "CANCELLED") continue;
       out.push({
         id: `order-${o.id}`,
         latitude: o.latitude,

@@ -86,6 +86,7 @@ const statusTone: Record<OrderStatus, Tone> = {
   PICKED_UP: "warn",
   DELIVERED: "ok",
   FAILED: "danger",
+  CANCELLED: "neutral",
 };
 
 export function StatusBadge({ status }: { status: OrderStatus }) {

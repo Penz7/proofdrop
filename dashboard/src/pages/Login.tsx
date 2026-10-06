@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate } from "react-router";
+import { Navigate, Link } from "react-router";
 import { useAuth } from "../lib/auth";
 import { Button, ErrorNote, Field, Input, Spinner } from "../components/ui";
 
@@ -55,6 +55,11 @@ export function LoginPage() {
             </p>
           )}
         </form>
+        <p className="mt-4 text-center text-xs text-white/50">
+          <Link to="/privacy" className="underline-offset-2 hover:text-white hover:underline">
+            Privacy policy
+          </Link>
+        </p>
       </div>
     </div>
   );

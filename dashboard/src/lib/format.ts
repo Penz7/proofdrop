@@ -37,6 +37,7 @@ export const orderStatusLabel: Record<OrderStatus, string> = {
   PICKED_UP: "Picked up",
   DELIVERED: "Delivered",
   FAILED: "Failed",
+  CANCELLED: "Cancelled",
 };
 
 export const courierStatusLabel: Record<CourierStatus, string> = {

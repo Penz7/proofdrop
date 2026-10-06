@@ -12,6 +12,7 @@ import { LiveMapPage } from "./pages/LiveMap";
 import { EvidencePage } from "./pages/Evidence";
 import { DevicesPage } from "./pages/Devices";
 import { PrintQrPage } from "./pages/PrintQr";
+import { PrivacyPage } from "./pages/Privacy";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -41,6 +42,7 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
             <Route element={<Protected />}>
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/map" element={<LiveMapPage />} />

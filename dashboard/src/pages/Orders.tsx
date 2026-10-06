@@ -7,7 +7,7 @@ import { HUB, type NewOrderInput, type Order, type OrderStatus } from "../lib/ty
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge } from "../components/ui";
 import { MapView } from "../components/MapView";
 
-const filters: (OrderStatus | "ALL" | "ACTIVE")[] = ["ACTIVE", "ALL", "CREATED", "ASSIGNED", "PICKED_UP", "DELIVERED", "FAILED"];
+const filters: (OrderStatus | "ALL" | "ACTIVE")[] = ["ACTIVE", "ALL", "CREATED", "ASSIGNED", "PICKED_UP", "DELIVERED", "FAILED", "CANCELLED"];
 const isActive = (s: OrderStatus) => s === "CREATED" || s === "ASSIGNED" || s === "PICKED_UP";
 
 export function OrdersPage() {
@@ -105,7 +105,16 @@ function OrderRow({ order, couriers }: { order: Order; couriers: { id: string; n
       void queryClient.invalidateQueries({ queryKey: ["couriers"] });
     },
   });
-  const locked = order.status === "DELIVERED";
+  const cancel = useMutation({
+    mutationFn: () => api.cancelOrder(order.id),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<Order[]>(["orders"], (list) => list?.map((o) => (o.id === updated.id ? updated : o)));
+      void queryClient.invalidateQueries({ queryKey: ["couriers"] });
+      setConfirming(false);
+    },
+  });
+  const [confirming, setConfirming] = useState(false);
+  const locked = order.status === "DELIVERED" || order.status === "CANCELLED";
 
   return (
     <tr className="align-top hover:bg-surface-2/50">
@@ -125,6 +134,36 @@ function OrderRow({ order, couriers }: { order: Order; couriers: { id: string; n
       <td className="max-w-56 px-4 py-3 text-muted">{order.items}</td>
       <td className="px-4 py-3">
         <StatusBadge status={order.status} />
+        {!locked && (
+          <p className="mt-1.5">
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              className="rounded text-xs text-muted underline-offset-2 hover:text-danger hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+            >
+              Cancel order
+            </button>
+          </p>
+        )}
+        {confirming && (
+          <Modal title={`Cancel ${order.code}?`} onClose={() => setConfirming(false)}>
+            <p className="text-sm text-muted">
+              {order.courierName
+                ? `${order.courierName} will see it disappear from their list right away. `
+                : ""}
+              A cancelled order can't be reassigned or delivered. Proof that still arrives for it is kept and flagged for review.
+            </p>
+            <ErrorNote error={cancel.error} />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConfirming(false)}>
+                Keep order
+              </Button>
+              <Button variant="danger" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+                {cancel.isPending && <Spinner />} Cancel order
+              </Button>
+            </div>
+          </Modal>
+        )}
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">

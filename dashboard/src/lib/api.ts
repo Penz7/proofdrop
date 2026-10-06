@@ -72,6 +72,7 @@ export const api = {
   createOrder: (input: NewOrderInput) => request<Order>("/dispatch/orders", { method: "POST", body: input }),
   assignOrder: (id: string, courierId: string | null) =>
     request<Order>(`/dispatch/orders/${id}/assign`, { method: "POST", body: { courierId } }),
+  cancelOrder: (id: string) => request<Order>(`/dispatch/orders/${id}/cancel`, { method: "POST" }),
 
   couriers: () => request<Courier[]>("/dispatch/couriers"),
 
