@@ -1,7 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
+import { spawnSync } from 'child_process';
 import { randomUUID } from 'crypto';
+import * as path from 'path';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { ChainRecord, seal, sha256Hex } from '../src/evidence/evidence-chain';
@@ -26,6 +28,7 @@ describeDb('ProofDrop API (e2e)', () => {
   let courier: { token: string; id: string };
   let otherCourier: { token: string; id: string };
   let dispatcherToken: string;
+  let prisma: PrismaService;
 
   const login = async (email: string, password: string) => {
     const res = await request(server).post('/api/auth/login').send({ email, password }).expect(200);
@@ -40,6 +43,25 @@ describeDb('ProofDrop API (e2e)', () => {
       .send({ customerName: 'E2E', address: '1 Test St', latitude: 10.776, longitude: 106.701, items: 'Box', courierId: courierId ?? undefined })
       .expect(201);
     return res.body as { id: string; status: string };
+  };
+
+  const dispatchOrder = async (id: string) => {
+    const res = await request(server).get('/api/dispatch/orders').set(auth(dispatcherToken)).expect(200);
+    return res.body.find((o: { id: string }) => o.id === id) as { status: string; courierId: string | null };
+  };
+
+  const evidenceItem = async (id: string) => {
+    const res = await request(server).get(`/api/dispatch/evidence?courierId=${courier.id}`).set(auth(dispatcherToken)).expect(200);
+    return res.body.find((e: { id: string }) => e.id === id) as { orderMatched: boolean };
+  };
+
+  /** A throwaway account straight in the database, for tests that mutate or delete it. */
+  const tempUser = async (role: 'COURIER' | 'DISPATCHER') => {
+    const email = `e2e-tmp-${randomUUID()}@proofdrop.dev`;
+    const user = await prisma.user.create({
+      data: { email, name: 'Temp', role, passwordHash: await bcrypt.hash('temp-password', 4) },
+    });
+    return { id: user.id, token: (await login(email, 'temp-password')).token };
   };
 
   const head = async () =>
@@ -76,8 +98,9 @@ describeDb('ProofDrop API (e2e)', () => {
     await app.init();
     server = app.getHttpServer();
 
+    prisma = app.get(PrismaService);
     const email = `e2e-${randomUUID()}@proofdrop.dev`;
-    await app.get(PrismaService).user.create({
+    await prisma.user.create({
       data: { email, name: 'E2E Courier', role: 'COURIER', passwordHash: await bcrypt.hash('e2e-password', 8) },
     });
     courier = await login(email, 'e2e-password');
@@ -118,6 +141,21 @@ describeDb('ProofDrop API (e2e)', () => {
 
     it('keeps couriers out of dispatcher routes', async () => {
       await request(server).get('/api/dispatch/orders').set(auth(courier.token)).expect(403);
+    });
+
+    it('refuses the token of an account deleted after login', async () => {
+      const user = await tempUser('COURIER');
+      await request(server).get('/api/orders').set(auth(user.token)).expect(200);
+      await prisma.user.delete({ where: { id: user.id } });
+      await request(server).get('/api/orders').set(auth(user.token)).expect(401);
+    });
+
+    it('uses the role stored in the database, not the one in the token', async () => {
+      const user = await tempUser('COURIER');
+      await prisma.user.update({ where: { id: user.id }, data: { role: 'DISPATCHER' } });
+      await request(server).get('/api/dispatch/orders').set(auth(user.token)).expect(200);
+      await request(server).get('/api/orders').set(auth(user.token)).expect(403);
+      await prisma.user.delete({ where: { id: user.id } });
     });
 
     it('keeps dispatchers out of courier routes', async () => {
@@ -180,10 +218,9 @@ describeDb('ProofDrop API (e2e)', () => {
       const traversal = await upload({ ...record, id: '../../../../tmp/evil' }, photo).expect(422);
       expect(traversal.body.message).toBe('Invalid record');
 
-      const theirOrder = await createOrder(otherCourier.id);
-      const wrongOrderPhoto = jpeg();
-      const wrongOrder = await upload(sealFor(theirOrder.id, wrongOrderPhoto, await head()), wrongOrderPhoto).expect(422);
-      expect(wrongOrder.body.message).toBe('Order not assigned to you');
+      const ghostPhoto = jpeg();
+      const ghost = await upload(sealFor(randomUUID(), ghostPhoto, await head()), ghostPhoto).expect(422);
+      expect(ghost.body.message).toBe('Unknown order');
 
       // The real upload, twice at once: a retry overlapping the first attempt must not be rejected.
       const [a, b] = await Promise.all([upload(record, photo), upload(record, photo)]);
@@ -218,6 +255,86 @@ describeDb('ProofDrop API (e2e)', () => {
       expect(photoRes.headers['x-content-type-options']).toBe('nosniff');
       expect(photoRes.headers['content-security-policy']).toContain('sandbox');
       await request(server).get(`/api/dispatch/evidence/${record.id}/photo?access_token=${courier.token}`).expect(403);
+    });
+  });
+
+  describe('cancellation', () => {
+    const cancel = (id: string) => request(server).post(`/api/dispatch/orders/${id}/cancel`).set(auth(dispatcherToken));
+
+    it('hides a cancelled order from the courier and freezes it', async () => {
+      const order = await createOrder(courier.id);
+      expect((await cancel(order.id).expect(200)).body.status).toBe('CANCELLED');
+      expect((await cancel(order.id).expect(200)).body.status).toBe('CANCELLED'); // idempotent
+
+      const mine = await request(server).get('/api/orders').set(auth(courier.token)).expect(200);
+      expect(mine.body.some((o: { id: string }) => o.id === order.id)).toBe(false);
+
+      const status = await request(server)
+        .post(`/api/orders/${order.id}/status`)
+        .set(auth(courier.token))
+        .send({ status: 'PICKED_UP', at: Date.now() })
+        .expect(409);
+      expect(status.body.message).toBe('Order was cancelled');
+
+      await request(server).post(`/api/dispatch/orders/${order.id}/assign`).set(auth(dispatcherToken)).send({ courierId: courier.id }).expect(409);
+    });
+
+    it('refuses to cancel a delivered order', async () => {
+      const order = await createOrder(courier.id);
+      await request(server).post(`/api/orders/${order.id}/status`).set(auth(courier.token)).send({ status: 'DELIVERED', at: Date.now() }).expect(200);
+      await cancel(order.id).expect(409);
+    });
+
+    it('keeps proof for a cancelled order in the chain without completing the order', async () => {
+      const order = await createOrder(courier.id);
+      await cancel(order.id).expect(200);
+
+      const photo = jpeg();
+      const record = sealFor(order.id, photo, await head());
+      const res = await upload(record, photo).expect(200);
+      expect(res.body).toEqual({ accepted: true, message: 'Stored; order was cancelled' });
+      expect((await dispatchOrder(order.id)).status).toBe('CANCELLED');
+      expect((await evidenceItem(record.id)).orderMatched).toBe(false);
+
+      // The chain isn't blocked: the next delivery links to it and completes normally.
+      const next = await createOrder(courier.id);
+      const nextPhoto = jpeg();
+      const nextRecord = sealFor(next.id, nextPhoto, await head());
+      expect((await upload(nextRecord, nextPhoto).expect(200)).body.message).toBe(`Stored evidence #${nextRecord.sequence}`);
+      expect((await dispatchOrder(next.id)).status).toBe('DELIVERED');
+      expect((await evidenceItem(nextRecord.id)).orderMatched).toBe(true);
+    });
+
+    it('keeps proof for an order reassigned away without touching the order', async () => {
+      const order = await createOrder(courier.id);
+      await request(server).post(`/api/dispatch/orders/${order.id}/assign`).set(auth(dispatcherToken)).send({ courierId: otherCourier.id }).expect(200);
+
+      const photo = jpeg();
+      const record = sealFor(order.id, photo, await head());
+      const res = await upload(record, photo).expect(200);
+      expect(res.body).toEqual({ accepted: true, message: 'Stored; order is no longer assigned to you' });
+      const after = await dispatchOrder(order.id);
+      expect(after.status).toBe('ASSIGNED');
+      expect(after.courierId).toBe(otherCourier.id);
+      expect((await evidenceItem(record.id)).orderMatched).toBe(false);
+    });
+  });
+
+  describe('create-user CLI', () => {
+    it('creates an account that can sign in, and refuses duplicates without --force', () => {
+      const email = `e2e-cli-${randomUUID()}@proofdrop.dev`;
+      const run = (...extra: string[]) =>
+        spawnSync(process.execPath, ['scripts/create-user.js', '--email', email, '--name', 'CLI User', '--role', 'COURIER', '--password', 'cli-password-1', ...extra], {
+          cwd: path.join(__dirname, '..'),
+          env: process.env,
+          encoding: 'utf8',
+        });
+      const first = run();
+      expect(first.status).toBe(0);
+      expect(first.stdout).toContain(`Created COURIER ${email}`);
+      expect(run().status).toBe(1);
+      expect(run('--force').status).toBe(0);
+      return login(email, 'cli-password-1');
     });
   });
 

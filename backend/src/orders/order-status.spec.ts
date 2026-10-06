@@ -19,6 +19,9 @@ describe('canCourierTransition', () => {
     ['CREATED', 'PICKED_UP'],
     ['FAILED', 'DELIVERED'],
     ['ASSIGNED', 'CREATED'],
+    ['CANCELLED', 'ASSIGNED'],
+    ['CANCELLED', 'DELIVERED'],
+    ['ASSIGNED', 'CANCELLED'],
   ] as const)('rejects %s -> %s', (from, to) => {
     expect(canCourierTransition(from, to)).toBe(false);
   });

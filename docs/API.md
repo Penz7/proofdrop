@@ -15,7 +15,8 @@ The NestJS backend (`backend/`), the React dispatcher dashboard (`dashboard/`) a
 
 ```ts
 type Role = "COURIER" | "DISPATCHER";
-type OrderStatus = "CREATED" | "ASSIGNED" | "PICKED_UP" | "DELIVERED" | "FAILED"; // CREATED = not assigned yet, never sent to couriers
+type OrderStatus = "CREATED" | "ASSIGNED" | "PICKED_UP" | "DELIVERED" | "FAILED" | "CANCELLED";
+// CREATED = not assigned yet; CREATED and CANCELLED orders are never listed for couriers
 type DeviceType = "SCANNER" | "BODY_CAM" | "PRINTER" | "VEHICLE";
 type CourierStatus = "IDLE" | "EN_ROUTE" | "DELIVERING" | "OFFLINE";
 
@@ -43,7 +44,7 @@ interface Device {
   holderId: string | null; holderName: string | null; checkedOutAt: number | null;
 }
 
-interface EvidenceRecord {      // exactly core/model Evidence.kt
+interface EvidenceRecord {      // exactly core/model Evidence.kt (the dispatcher list adds `orderMatched`, see below)
   id: string; sequence: number; orderId: string; fileName: string; fileSha256: string;
   capturedAt: number; latitude: number | null; longitude: number | null; bleVerified: boolean;
   previousHash: string; recordHash: string;
@@ -85,7 +86,7 @@ Each courier has **one continuous chain on the server**, numbered from 1, across
 | POST | `/api/auth/login` | `{ email, password }` | `200 { accessToken, user: User }` · `401` · `429` after 10 attempts per minute for the same email + IP |
 | GET | `/api/auth/me` | | `200 User` |
 
-JWT lifetime: 7 days (MVP, no refresh tokens).
+JWT lifetime: 7 days (MVP, no refresh tokens). Every authenticated request (REST, SSE, WebSocket) re-loads the user by the token's `sub`: a deleted user gets `401` immediately, and the **role stored in the database** is used, not the one in the token.
 
 ## Health
 
@@ -95,8 +96,8 @@ JWT lifetime: 7 days (MVP, no refresh tokens).
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/orders` | Orders assigned to me (status ≠ `CREATED`), newest `assignedAt` first |
-| POST | `/api/orders/:id/status` | Body `{ status, at }`. Allowed: `ASSIGNED→PICKED_UP`, `ASSIGNED/PICKED_UP→DELIVERED/FAILED`, `FAILED→ASSIGNED`. Same status again = `200` (idempotent). Other transitions → `409`. Not mine → `404`. Returns `Order` |
+| GET | `/api/orders` | Orders assigned to me (status not `CREATED` or `CANCELLED`), newest `assignedAt` first |
+| POST | `/api/orders/:id/status` | Body `{ status, at }`. Allowed: `ASSIGNED→PICKED_UP`, `ASSIGNED/PICKED_UP→DELIVERED/FAILED`, `FAILED→ASSIGNED`. Same status again = `200` (idempotent). Cancelled order → `409 "Order was cancelled"`. Other transitions → `409`. Not mine → `404`. Returns `Order` |
 | GET | `/api/devices` | All devices |
 | POST | `/api/devices/:id/checkout` | Body `{ courierId, courierName, at }`. The server **ignores** courierId/courierName and uses the token's user. If someone else holds the device, returns `200` with the device unchanged (the client detects the conflict). Unknown id → `404` |
 | POST | `/api/devices/:id/return` | Holder returns → `200 Device`. Already free → `200` unchanged (so offline retries succeed). Held by someone else → `409` |
@@ -110,11 +111,14 @@ JWT lifetime: 7 days (MVP, no refresh tokens).
 2. Same `id` already stored with the same `recordHash` → `200 { accepted:true, message:"Already stored" }` (idempotent retry, also when two identical uploads race)
 3. `sha256(file) != record.fileSha256` → `422 "File hash mismatch"`
 4. Recomputed hash ≠ `record.recordHash` → `422 "Record seal is invalid"`
-5. Order not assigned to me → `422 "Order not assigned to you"`
+5. Order doesn't exist → `422 "Unknown order"`. (An order that exists but is `CANCELLED`, or is no longer assigned to me, is **not** rejected: rejecting would block my chain forever, because record `n+1` could never link. Those records go through the remaining checks and are stored with `orderMatched: false`; see 9.)
 6. `sequence > 1` and my record `sequence-1` does not exist yet → `409 "Previous record not uploaded yet"` (the client retries later)
 7. `previousHash` ≠ my record `sequence-1`'s `recordHash` (or GENESIS when `sequence == 1`) → `422 "Chain link mismatch"`
 8. A different record already holds this `sequence` → `422 "Sequence already used"`
-9. Otherwise store the file in object storage and the row in Postgres, set the order to `DELIVERED` (with `deliveredAt`), and return `200 { accepted:true, message:"Stored evidence #<sequence>" }`
+9. Otherwise store the file in object storage and the row in Postgres, and return `200`:
+   - order assigned to me and not cancelled → set it to `DELIVERED` (with `deliveredAt`), `orderMatched: true`, message `"Stored evidence #<sequence>"`
+   - order `CANCELLED` → order untouched, `orderMatched: false`, message `"Stored; order was cancelled"`
+   - order assigned to someone else or unassigned → order untouched, `orderMatched: false`, message `"Stored; order is no longer assigned to you"`
 
 ### `GET /api/assignments` (SSE, courier)
 
@@ -128,11 +132,12 @@ JWT lifetime: 7 days (MVP, no refresh tokens).
 |---|---|---|
 | GET | `/api/dispatch/orders?status=` | All orders, newest first (`courierName` filled in) |
 | POST | `/api/dispatch/orders` | `{ customerName, customerPhone?, address, latitude, longitude, items, beaconId?, courierId? }` → `201 Order`. Status is `ASSIGNED` if `courierId` is given, else `CREATED`. Code = next `PD-xxxx` |
-| POST | `/api/dispatch/orders/:id/assign` | `{ courierId: string \| null }` → `Order`. `null` unassigns (status back to `CREATED`). Delivered orders → `409` |
+| POST | `/api/dispatch/orders/:id/assign` | `{ courierId: string \| null }` → `Order`. `null` unassigns (status back to `CREATED`). Delivered or cancelled orders → `409` |
+| POST | `/api/dispatch/orders/:id/cancel` | → `Order` with status `CANCELLED` (the courier stays on the record for history). Already cancelled → `200` unchanged. Delivered → `409`. If a courier held it, they get SSE `unassigned { id }`; dispatchers get `order` |
 | GET | `/api/dispatch/couriers` | `[{ id, name, email, online, lastPosition: CourierPosition \| null, activeOrders }]` (`online` = position within the last 2 min) |
 | GET | `/api/dispatch/devices` | Same as the courier list |
 | POST | `/api/dispatch/devices` | `{ id, name, type, serial, batteryPct }` → `201 Device` · duplicate id → `409` |
-| GET | `/api/dispatch/evidence?courierId=&orderId=` | `EvidenceRecord & { courierId, courierName, orderCode, receivedAt, sizeBytes }[]`, newest first |
+| GET | `/api/dispatch/evidence?courierId=&orderId=` | `EvidenceRecord & { courierId, courierName, orderCode, receivedAt, sizeBytes, orderMatched }[]`, newest first. `orderMatched: false` = the order was cancelled or reassigned when this proof arrived ("needs review") |
 | GET | `/api/dispatch/evidence/:id/photo` | The image bytes (`?access_token=` allowed so `<img src>` works). Served with `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox` |
 | GET | `/api/dispatch/evidence/verify?courierId=` | Re-downloads and re-hashes every photo and walks the chain → `{ valid: true, count }` or `{ valid: false, atSequence, reason }` |
 | GET | `/api/dispatch/events` | **SSE**: `event: order` (`Order`) on any order change, `event: evidence` (the evidence list item) on each accepted upload, `: ping` every 25 s |
@@ -146,6 +151,10 @@ Raw WebSocket (NestJS `WsAdapter`) with JSON messages in the form `{ "event": st
 - Courier → server: `{ "event": "position", "data": { "latitude": number, "longitude": number, "status"?: CourierStatus } }`. The server fills `courierId`, `name` and `updatedAt` from the token and also stores the last position on the user row.
 - Dispatcher connections only receive messages.
 - An invalid token closes the socket with code `4401`. Frames over 4 KB close it with `1009`. Position reports arriving less than 1 s apart are ignored.
+
+## API docs
+
+Swagger UI at `/api/docs` is served only when `SWAGGER_ENABLED=true` (on in `docker-compose.yml` for local dev, off in production).
 
 ## Seed accounts (local dev only)
 

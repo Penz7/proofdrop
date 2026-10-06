@@ -32,7 +32,3 @@ export function extractToken(headers: Record<string, unknown>, url: string | und
   }
   return null;
 }
-
-export function payloadToUser(p: JwtPayload): AuthUser {
-  return { id: p.sub, email: p.email, name: p.name, role: p.role };
-}

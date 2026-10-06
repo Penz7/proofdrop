@@ -19,6 +19,7 @@ enum OrderStatus {
   PICKED_UP
   DELIVERED
   FAILED
+  CANCELLED
 }
 
 enum DeviceType {
@@ -98,6 +99,9 @@ model Evidence {
   bleVerified  Boolean
   previousHash String
   recordHash   String
+  // False when the order was cancelled or no longer assigned to this courier at upload time:
+  // the record is kept for chain continuity but needs a dispatcher's review.
+  orderMatched Boolean  @default(true)
   storageKey   String
   sizeBytes    Int
   contentType  String

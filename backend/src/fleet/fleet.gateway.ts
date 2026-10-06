@@ -1,5 +1,4 @@
 import { Logger } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
   MessageBody,
@@ -10,7 +9,8 @@ import {
 } from '@nestjs/websockets';
 import { IncomingMessage } from 'http';
 import { WebSocket } from 'ws';
-import { AuthUser, extractToken, JwtPayload, payloadToUser } from '../auth/auth.types';
+import { AuthService } from '../auth/auth.module';
+import { AuthUser, extractToken } from '../auth/auth.types';
 import { CourierPosition, CourierStatus, FleetService } from './fleet.service';
 
 const UNAUTHORIZED = 4401;
@@ -28,7 +28,7 @@ export class FleetGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(FleetGateway.name);
 
   constructor(
-    private readonly jwt: JwtService,
+    private readonly auth: AuthService,
     private readonly fleet: FleetService,
   ) {}
 
@@ -37,7 +37,7 @@ export class FleetGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const token = extractToken(request.headers as Record<string, unknown>, request.url, true);
     try {
       if (!token) throw new Error('missing token');
-      client.user = payloadToUser(await this.jwt.verifyAsync<JwtPayload>(token));
+      client.user = await this.auth.authenticate(token);
     } catch {
       client.close(UNAUTHORIZED, 'Unauthorized');
       return;

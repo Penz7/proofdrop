@@ -96,6 +96,12 @@ export class DispatchOrdersController {
     return this.orders.assign(id, dto.courierId ?? null);
   }
 
+  @Post('orders/:id/cancel')
+  @HttpCode(200)
+  cancel(@Param('id', ParseUUIDPipe) id: string) {
+    return this.orders.cancel(id);
+  }
+
   /** SSE: `order` and `evidence` events for every dispatcher. */
   @Get('events')
   @AllowQueryToken()

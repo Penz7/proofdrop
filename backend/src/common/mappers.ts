@@ -70,6 +70,7 @@ export function toEvidenceListItem(e: EvidenceWithRefs) {
     orderCode: orderCode(e.order.codeNumber),
     receivedAt: e.receivedAt.getTime(),
     sizeBytes: e.sizeBytes,
+    orderMatched: e.orderMatched,
   };
 }
 

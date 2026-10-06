@@ -7,6 +7,7 @@ const COURIER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PICKED_UP: ['DELIVERED', 'FAILED'],
   FAILED: ['ASSIGNED'],
   DELIVERED: [],
+  CANCELLED: [],
 };
 
 /** Same status again is allowed so offline retries are idempotent. */

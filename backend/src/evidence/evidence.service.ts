@@ -55,9 +55,14 @@ export class EvidenceService {
     // 4. Seal is intact
     if (!isSealedCorrectly(record)) reject('Record seal is invalid');
 
-    // 5. The order belongs to this courier
+    // 5. The order exists. A cancelled or reassigned order is NOT rejected: a rejected record would
+    // block this courier's chain forever (record n+1 could never link), so it is stored for chain
+    // continuity and flagged for a dispatcher's review instead of completing the order.
     const order = await this.prisma.order.findUnique({ where: { id: record.orderId } });
-    if (!order || order.courierId !== courierId) reject('Order not assigned to you');
+    if (!order) reject('Unknown order');
+    const cancelled = order!.status === 'CANCELLED';
+    const ownedByMe = order!.courierId === courierId && order!.status !== 'CREATED';
+    const orderMatched = ownedByMe && !cancelled;
 
     // 6 + 7. Link to the previous record of this courier's chain
     let expectedPrevious = GENESIS;
@@ -104,10 +109,11 @@ export class EvidenceService {
           storageKey,
           sizeBytes: file!.buffer.length,
           contentType,
+          orderMatched,
         },
         include: listInclude,
       });
-      await this.orders.markDeliveredByEvidence(record.orderId);
+      if (orderMatched) await this.orders.markDeliveredByEvidence(record.orderId, courierId);
       this.events.emitDispatch({ type: 'evidence', data: toEvidenceListItem(saved) });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -121,6 +127,8 @@ export class EvidenceService {
       }
       throw e;
     }
+    if (cancelled) return { accepted: true, message: 'Stored; order was cancelled' };
+    if (!orderMatched) return { accepted: true, message: 'Stored; order is no longer assigned to you' };
     return { accepted: true, message: `Stored evidence #${record.sequence}` };
   }
 

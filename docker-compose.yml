@@ -54,6 +54,9 @@ services:
       S3_BUCKET: evidence
       # Local dev only: creates the seed accounts from docs/API.md on start.
       SEED_DEMO_DATA: "true"
+      SWAGGER_ENABLED: "true"
+      # The dashboard's nginx proxies /api, so trust one hop of X-Forwarded-For.
+      TRUST_PROXY: "1"
     ports:
       - "3000:3000"
     depends_on:

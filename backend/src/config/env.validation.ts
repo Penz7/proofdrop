@@ -25,6 +25,12 @@ export class Env {
   @IsOptional() @IsString() S3_ACCESS_KEY?: string;
   @IsOptional() @IsString() S3_SECRET_KEY?: string;
   @IsString() S3_BUCKET = 'evidence';
+
+  /** Number of reverse-proxy hops in front of the API (0 = none). */
+  @Type(() => Number) @IsInt() TRUST_PROXY: number = 0;
+
+  /** Serve Swagger UI at /api/docs. Off unless explicitly enabled (dev compose turns it on). */
+  @IsIn(['true', 'false']) SWAGGER_ENABLED: 'true' | 'false' = 'false';
 }
 
 /** Fails fast at boot with a readable list of what is missing. */

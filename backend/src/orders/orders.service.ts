@@ -27,7 +27,7 @@ export class OrdersService {
 
   async listForCourier(courierId: string): Promise<OrderDto[]> {
     const orders = await this.prisma.order.findMany({
-      where: { courierId, status: { not: 'CREATED' } },
+      where: { courierId, status: { notIn: ['CREATED', 'CANCELLED'] } },
       include,
       orderBy: [{ assignedAt: 'desc' }, { codeNumber: 'desc' }],
     });
@@ -46,6 +46,7 @@ export class OrdersService {
   async updateStatusByCourier(courierId: string, orderId: string, status: OrderStatus): Promise<OrderDto> {
     const order = await this.prisma.order.findFirst({ where: { id: orderId, courierId } });
     if (!order || order.status === 'CREATED') throw new NotFoundException('Order not found');
+    if (order.status === 'CANCELLED') throw new ConflictException('Order was cancelled');
     if (!canCourierTransition(order.status, status)) {
       throw new ConflictException(`Cannot change order from ${order.status} to ${status}`);
     }
@@ -90,6 +91,7 @@ export class OrdersService {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
     if (order.status === 'DELIVERED') throw new ConflictException('Delivered orders cannot be reassigned');
+    if (order.status === 'CANCELLED') throw new ConflictException('Cancelled orders cannot be reassigned');
     if (courierId) await this.requireCourier(courierId);
 
     const data: Prisma.OrderUncheckedUpdateManyInput = courierId
@@ -103,7 +105,7 @@ export class OrdersService {
 
     // Only if nobody delivered or reassigned it since we read it (evidence can land any time).
     const { count } = await this.prisma.order.updateMany({
-      where: { id: orderId, courierId: order.courierId, status: { not: 'DELIVERED' } },
+      where: { id: orderId, courierId: order.courierId, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
       data,
     });
     if (count === 0) throw new ConflictException('Order changed meanwhile, refresh and try again');
@@ -116,14 +118,42 @@ export class OrdersService {
     return dto;
   }
 
-  /** Called when accepted evidence proves delivery. */
-  async markDeliveredByEvidence(orderId: string): Promise<void> {
-    const updated = await this.prisma.order.update({
-      where: { id: orderId },
-      data: { status: 'DELIVERED', deliveredAt: new Date() },
-      include,
+  /**
+   * Cancels an order. The courier stays on the record for history but loses it from their list
+   * (SSE `unassigned`). Idempotent; delivered orders can't be cancelled.
+   */
+  async cancel(orderId: string): Promise<OrderDto> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status === 'CANCELLED') return toOrderDto(await this.get(orderId));
+    if (order.status === 'DELIVERED') throw new ConflictException('Delivered orders cannot be cancelled');
+
+    // Evidence can mark the order delivered at any moment; only cancel what we just read.
+    const { count } = await this.prisma.order.updateMany({
+      where: { id: orderId, status: order.status, courierId: order.courierId },
+      data: { status: 'CANCELLED' },
     });
-    this.events.emitDispatch({ type: 'order', data: toOrderDto(updated) });
+    if (count === 0) throw new ConflictException('Order changed meanwhile, refresh and try again');
+    const dto = toOrderDto(await this.get(orderId));
+    this.events.emitDispatch({ type: 'order', data: dto });
+    if (order.courierId) {
+      this.events.emitCourier({ courierId: order.courierId, type: 'unassigned', data: { id: orderId } });
+    }
+    return dto;
+  }
+
+  /**
+   * Called when accepted evidence proves delivery. Conditional, so proof that races a
+   * cancellation or reassignment can't resurrect the order.
+   */
+  async markDeliveredByEvidence(orderId: string, courierId: string): Promise<boolean> {
+    const { count } = await this.prisma.order.updateMany({
+      where: { id: orderId, courierId, status: { notIn: ['CANCELLED', 'CREATED'] } },
+      data: { status: 'DELIVERED', deliveredAt: new Date() },
+    });
+    if (count === 0) return false;
+    this.events.emitDispatch({ type: 'order', data: toOrderDto(await this.get(orderId)) });
+    return true;
   }
 
   private async get(orderId: string) {

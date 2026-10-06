@@ -55,6 +55,26 @@ export class AuthService {
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
     };
   }
+
+  /**
+   * Verifies the token, then re-loads the user (one primary-key lookup) so a deleted account is
+   * refused immediately and the current database role is used rather than the one in the token.
+   * Shared by the HTTP guard (REST + SSE) and the fleet WebSocket.
+   */
+  async authenticate(token: string): Promise<AuthUser> {
+    let payload: JwtPayload;
+    try {
+      payload = await this.jwt.verifyAsync<JwtPayload>(token);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired access token');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true, name: true, role: true },
+    });
+    if (!user) throw new UnauthorizedException('Account no longer exists');
+    return user;
+  }
 }
 
 @ApiTags('auth')

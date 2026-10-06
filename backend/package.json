@@ -13,7 +13,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "create-user": "node scripts/create-user.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
