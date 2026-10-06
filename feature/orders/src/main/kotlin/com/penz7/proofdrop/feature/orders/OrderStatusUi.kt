@@ -13,6 +13,7 @@ internal val OrderStatus.label: String
         OrderStatus.PICKED_UP -> "Picked up"
         OrderStatus.DELIVERED -> "Delivered"
         OrderStatus.FAILED -> "Failed"
+        OrderStatus.CANCELLED -> "Cancelled"
     }
 
 internal val OrderStatus.color: Color
@@ -21,4 +22,5 @@ internal val OrderStatus.color: Color
         OrderStatus.PICKED_UP -> Color(0xFFC98A00)
         OrderStatus.DELIVERED -> SuccessGreen
         OrderStatus.FAILED -> DangerRed
+        OrderStatus.CANCELLED -> Color(0xFF8A94A6)
     }

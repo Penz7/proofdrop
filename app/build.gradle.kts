@@ -1,9 +1,17 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.proofdrop.android.application)
     alias(libs.plugins.proofdrop.android.compose)
     alias(libs.plugins.proofdrop.android.hilt)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Upload-key credentials live outside git (see docs/PLAY_STORE.md). Without them, release builds
+// fall back to the debug key so CI and reviewers can still build a runnable release APK.
+val keystoreProps = rootProject.file("keystore.properties")
+    .takeIf { it.exists() }
+    ?.let { file -> Properties().apply { file.inputStream().use(::load) } }
 
 android {
     namespace = "com.penz7.proofdrop"
@@ -12,6 +20,22 @@ android {
         applicationId = "com.penz7.proofdrop"
         versionCode = 1
         versionName = "1.0.0"
+        buildConfigField(
+            "String",
+            "PRIVACY_POLICY_URL",
+            "\"https://github.com/Penz7/proofdrop/blob/main/docs/PRIVACY.md\"",
+        )
+    }
+
+    signingConfigs {
+        if (keystoreProps != null) {
+            create("upload") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildFeatures {
@@ -23,9 +47,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Play signing: create keystore.properties locally (never commit it). Falls back to debug
-            // signing so `assembleRelease` still works on CI and for reviewers.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
         }
     }
 }

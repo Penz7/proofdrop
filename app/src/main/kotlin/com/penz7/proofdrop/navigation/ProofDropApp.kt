@@ -125,11 +125,12 @@ fun ProofDropApp(
             startDestination = startDestination,
             modifier = Modifier.fillMaxSize().padding(bottom).consumeWindowInsets(bottom),
         ) {
-            loginScreen(showDevHints = BuildConfig.DEBUG)
+            loginScreen(showDevHints = BuildConfig.DEBUG, privacyPolicyUrl = BuildConfig.PRIVACY_POLICY_URL)
             ordersScreens(
                 onOpenOrder = { navController.navigate(OrderDetailDestination(it)) },
                 onCaptureProof = { navController.navigate(CaptureDestination(it)) },
                 onBack = navController::popBackStack,
+                privacyPolicyUrl = BuildConfig.PRIVACY_POLICY_URL,
             )
             captureScreens(
                 onDone = { navController.popBackStack(OrdersDestination, inclusive = false) },

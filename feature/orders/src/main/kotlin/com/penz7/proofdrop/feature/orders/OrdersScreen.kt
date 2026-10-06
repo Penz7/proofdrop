@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Policy
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -74,6 +76,7 @@ private val shiftPermissions = buildList {
 @Composable
 internal fun OrdersRoute(
     onOpenOrder: (String) -> Unit,
+    privacyPolicyUrl: String,
     viewModel: OrdersViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -94,6 +97,7 @@ internal fun OrdersRoute(
         onOpenOrder = onOpenOrder,
         onToggleShift = { if (state.onShift) viewModel.endShift() else permissionLauncher.launch(shiftPermissions) },
         onLogout = viewModel::requestLogout,
+        privacyPolicyUrl = privacyPolicyUrl,
     )
 
     state.unsyncedOnLogout?.let { count ->
@@ -121,7 +125,9 @@ internal fun OrdersScreen(
     onOpenOrder: (String) -> Unit,
     onToggleShift: () -> Unit,
     onLogout: () -> Unit,
+    privacyPolicyUrl: String = "",
 ) {
+    val uriHandler = LocalUriHandler.current
     var menuOpen by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
@@ -165,6 +171,16 @@ internal fun OrdersScreen(
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.MoreVert, "More") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (privacyPolicyUrl.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("Privacy policy") },
+                                    leadingIcon = { Icon(Icons.Outlined.Policy, null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        runCatching { uriHandler.openUri(privacyPolicyUrl) }
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Sign out") },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Logout, null) },

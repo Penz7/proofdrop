@@ -22,8 +22,9 @@ data class Order(
     val deliveredAt: Long? = null,
 )
 
+/** CREATED (not assigned yet) and CANCELLED orders are never sent to couriers, but are decodable. */
 @Serializable
-enum class OrderStatus { CREATED, ASSIGNED, PICKED_UP, DELIVERED, FAILED }
+enum class OrderStatus { CREATED, ASSIGNED, PICKED_UP, DELIVERED, FAILED, CANCELLED }
 
 @Serializable
 data class OrderStatusUpdate(val status: OrderStatus, val at: Long)

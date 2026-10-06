@@ -25,7 +25,7 @@
 
 | | Courier app (Android) | Backend / Dashboard |
 |---|---|---|
-| **Orders** | Offline-first list. New assignments are pushed over SSE and shown as notifications even when the app is in the background | Dispatcher creates an order (clicks the map to set the location) and assigns, reassigns or unassigns it |
+| **Orders** | Offline-first list. New assignments are pushed over SSE and shown as notifications even when the app is in the background; tapping one opens the order | Dispatcher creates an order (clicks the map to set the location), assigns, reassigns, unassigns or cancels it |
 | **Proof of delivery** | CameraX photo → SHA-256 → sealed into the courier's hash chain → queued upload (WorkManager) | Re-hashes the uploaded photo, checks the seal and the link to the previous record, and stores the photo in S3 |
 | **BLE beacon** | While the camera is open, scans for the drop-off beacon and marks the delivery *beacon verified* when it's close enough | Badge on each evidence record |
 | **Shift** | A foreground service streams GPS to dispatch over a WebSocket | Live fleet map (MapLibre + OpenStreetMap) with online/offline state |
@@ -113,6 +113,16 @@ No server? Tap **Try demo mode** for sample data and a simulated fleet on the ph
 3. App → open the order → **Capture proof of delivery**. The record is sealed, uploaded and verified, and the order turns *Delivered* on the dashboard without a reload.
 4. Dashboard → **Evidence** → open the photo → **Verify chain** → intact.
 5. App → **Ledger** → **Simulate tampering** (debug builds) → the app flags the exact record.
+
+## Deploy and publish
+
+| Guide | What it covers |
+|---|---|
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Production on a VPS: `docker-compose.prod.yml` with Caddy (automatic HTTPS), secrets, creating the first dispatcher with `npm run create-user`, backups, updates |
+| [docs/PLAY_STORE.md](docs/PLAY_STORE.md) | Upload key and signing, building the `.aab`, Data safety and permission declarations, store listing (EN/VI) |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | Privacy policy, also served by the dashboard at `/privacy` |
+
+Store graphics are in [`docs/store/`](docs/store) (512×512 icon, 1024×500 feature graphic).
 
 ## Testing
 

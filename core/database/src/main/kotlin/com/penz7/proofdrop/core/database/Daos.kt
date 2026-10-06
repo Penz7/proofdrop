@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface OrderDao {
-    @Query("SELECT * FROM orders ORDER BY CASE status WHEN 'DELIVERED' THEN 1 WHEN 'FAILED' THEN 1 ELSE 0 END, assignedAt DESC")
+    @Query("SELECT * FROM orders ORDER BY CASE status WHEN 'DELIVERED' THEN 1 WHEN 'FAILED' THEN 1 WHEN 'CANCELLED' THEN 1 ELSE 0 END, assignedAt DESC")
     fun observeAll(): Flow<List<OrderEntity>>
 
     @Query("SELECT * FROM orders WHERE id = :id")

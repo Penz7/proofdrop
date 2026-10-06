@@ -167,6 +167,10 @@ private fun OrderDetailScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Delivered. Proof is sealed in the evidence ledger.")
                 }
+                OrderStatus.CANCELLED -> Text(
+                    "This order was cancelled by dispatch. No proof of delivery is needed.",
+                    color = MaterialTheme.colorScheme.secondary,
+                )
                 OrderStatus.FAILED -> OutlinedButton(
                     onClick = { onSetStatus(OrderStatus.ASSIGNED) },
                     modifier = Modifier.fillMaxWidth(),

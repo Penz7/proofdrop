@@ -1,9 +1,18 @@
 package com.penz7.proofdrop.core.data.sync
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.penz7.proofdrop.core.data.R
 import com.penz7.proofdrop.core.data.repository.EvidenceStorage
 import com.penz7.proofdrop.core.database.DeviceDao
 import com.penz7.proofdrop.core.database.EvidenceDao
@@ -90,7 +99,31 @@ class SyncWorker @AssistedInject constructor(
                 device.toModel()
             }
             deviceDao.upsert(listOf(confirmed.toEntity()))
+            if (device.pendingAction == PendingDeviceAction.CHECKOUT && confirmed.holderId != myId) {
+                // The offline checkout lost: someone else took the device first.
+                notifyCheckoutLost(confirmed.name, confirmed.holderName ?: "another courier")
+            }
         }
+    }
+
+    private fun notifyCheckoutLost(deviceName: String, holder: String) {
+        val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!canNotify) return
+        val manager = applicationContext.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_SYNC, "Sync problems", NotificationManager.IMPORTANCE_DEFAULT))
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_SYNC)
+            .setSmallIcon(R.drawable.ic_stat_proofdrop)
+            .setContentTitle("Device not checked out")
+            .setContentText("$deviceName was already checked out by $holder while you were offline.")
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(applicationContext).notify(deviceName.hashCode(), notification)
+    }
+
+    private companion object {
+        const val CHANNEL_SYNC = "sync"
     }
 
     /** In sequence order: the server needs record n-1 before it accepts record n. */

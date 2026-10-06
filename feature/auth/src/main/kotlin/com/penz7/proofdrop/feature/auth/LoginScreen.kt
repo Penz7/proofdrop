@@ -24,12 +24,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,16 +48,17 @@ import kotlinx.serialization.Serializable
 @Serializable data object LoginDestination
 
 /** Navigation away from login is driven by the session state in the app module. */
-fun NavGraphBuilder.loginScreen(showDevHints: Boolean) {
-    composable<LoginDestination> { LoginRoute(showDevHints) }
+fun NavGraphBuilder.loginScreen(showDevHints: Boolean, privacyPolicyUrl: String) {
+    composable<LoginDestination> { LoginRoute(showDevHints, privacyPolicyUrl) }
 }
 
 @Composable
-internal fun LoginRoute(showDevHints: Boolean, viewModel: LoginViewModel = hiltViewModel()) {
+internal fun LoginRoute(showDevHints: Boolean, privacyPolicyUrl: String, viewModel: LoginViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LoginScreen(
         state = state,
         showDevHints = showDevHints,
+        privacyPolicyUrl = privacyPolicyUrl,
         onServerUrl = viewModel::onServerUrl,
         onEmail = viewModel::onEmail,
         onPassword = viewModel::onPassword,
@@ -68,6 +71,7 @@ internal fun LoginRoute(showDevHints: Boolean, viewModel: LoginViewModel = hiltV
 private fun LoginScreen(
     state: LoginUiState,
     showDevHints: Boolean,
+    privacyPolicyUrl: String,
     onServerUrl: (String) -> Unit,
     onEmail: (String) -> Unit,
     onPassword: (String) -> Unit,
@@ -155,5 +159,9 @@ private fun LoginScreen(
             color = MaterialTheme.colorScheme.secondary,
             textAlign = TextAlign.Center,
         )
+        val uriHandler = LocalUriHandler.current
+        TextButton(onClick = { runCatching { uriHandler.openUri(privacyPolicyUrl) } }) {
+            Text("Privacy policy", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
