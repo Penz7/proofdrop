@@ -1,4 +1,4 @@
-import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import type { OrderStatus } from "../lib/types";
 import { orderStatusLabel, shortHash } from "../lib/format";
 
@@ -104,7 +104,7 @@ export function Hash({ value, n = 10 }: { value: string; n?: number }) {
       type="button"
       title={copied ? "Copied" : `${value}\nClick to copy`}
       onClick={() => {
-        void navigator.clipboard?.writeText(value).then(() => setCopied(true));
+        void copyText(value).then((ok) => ok && setCopied(true));
       }}
       className="rounded px-1 font-mono text-xs text-muted hover:bg-surface-2 hover:text-fg"
     >
@@ -113,19 +113,69 @@ export function Hash({ value, n = 10 }: { value: string; n?: number }) {
   );
 }
 
+/** Clipboard API needs a secure context (https or localhost); fall back for http://<LAN-IP>. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const dialog = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  // Move focus into the dialog, keep Tab inside it, and give focus back to the opener on close.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const opener = document.activeElement as HTMLElement | null;
+    const inForm = FOCUSABLE.split(", ").map((sel) => `form ${sel}`).join(", ");
+    const first = dialog.current?.querySelector<HTMLElement>(inForm) ?? dialog.current;
+    first?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRef.current();
+      if (e.key !== "Tab" || !dialog.current) return;
+      const items = Array.from(dialog.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+      if (items.length === 0) return;
+      const [head, tail] = [items[0], items[items.length - 1]];
+      if (e.shiftKey && document.activeElement === head) {
+        e.preventDefault();
+        tail.focus();
+      } else if (!e.shiftKey && document.activeElement === tail) {
+        e.preventDefault();
+        head.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
+  }, []);
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8" onMouseDown={onClose}>
       <div
+        ref={dialog}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`w-full ${wide ? "max-w-4xl" : "max-w-lg"} rounded-2xl border border-line bg-surface shadow-2xl`}
+        className={`w-full ${wide ? "max-w-4xl" : "max-w-lg"} rounded-2xl border border-line bg-surface shadow-2xl outline-none`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3">

@@ -78,7 +78,7 @@ export function OrdersPage() {
                   <th className="px-4 py-3">Items</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Courier</th>
-                  <th className="px-4 py-3">Updated</th>
+                  <th className="px-4 py-3">Time</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -151,7 +151,7 @@ function OrderRow({ order, couriers }: { order: Order; couriers: { id: string; n
         {assign.error && <p className="mt-1 text-xs text-danger">{(assign.error as Error).message}</p>}
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-xs text-muted">
-        {order.deliveredAt ? `Delivered ${timeAgo(order.deliveredAt)}` : timeAgo(order.assignedAt)}
+        {order.deliveredAt ? `Delivered ${timeAgo(order.deliveredAt)}` : `${order.courierId ? "Assigned" : "Created"} ${timeAgo(order.assignedAt)}`}
       </td>
     </tr>
   );

@@ -93,7 +93,10 @@ export function MapView({
       attributionControl: { compact: true },
     });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    m.on("click", (e) => pickRef.current?.(e.lngLat.lat, e.lngLat.lng));
+    m.on("click", (e) => {
+      const p = e.lngLat.wrap();
+      pickRef.current?.(p.lat, p.lng);
+    });
     map.current = m;
     const current = placed.current;
     return () => {
@@ -115,10 +118,12 @@ export function MapView({
     const seen = new Set<string>();
     for (const mk of markers) {
       seen.add(mk.id);
-      const key = `${mk.color}|${mk.shape}|${mk.label}|${mk.dimmed}|${mk.popup}`;
+      // Popup text (e.g. "12s ago") changes often; update it in place so an open popup stays open.
+      const key = `${mk.color}|${mk.shape}|${mk.label}|${mk.dimmed}|${mk.popup != null}`;
       const existing = placed.current.get(mk.id);
       if (existing && existing.key === key) {
         existing.marker.setLngLat([mk.longitude, mk.latitude]);
+        if (mk.popup != null) existing.marker.getPopup()?.setHTML(mk.popup);
         continue;
       }
       existing?.marker.remove();

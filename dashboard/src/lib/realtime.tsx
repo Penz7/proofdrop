@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { withToken } from "./api";
+import { api, withToken } from "./api";
 import { useAuth } from "./auth";
 import type { CourierPosition, EvidenceItem, Order } from "./types";
 
@@ -31,6 +31,15 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     let retry: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     let disposed = false;
+    let everOpened = false;
+
+    const parse = <T,>(e: Event): T | null => {
+      try {
+        return JSON.parse((e as MessageEvent<string>).data) as T;
+      } catch {
+        return null;
+      }
+    };
 
     const connect = () => {
       setEvents("connecting");
@@ -38,9 +47,17 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       source.onopen = () => {
         attempt = 0;
         setEvents("open");
+        // Events sent while we were disconnected are gone: refetch what they would have updated.
+        if (everOpened) {
+          void queryClient.invalidateQueries({ queryKey: ["orders"] });
+          void queryClient.invalidateQueries({ queryKey: ["evidence"] });
+          void queryClient.invalidateQueries({ queryKey: ["couriers"] });
+        }
+        everOpened = true;
       };
       source.addEventListener("order", (e) => {
-        const order = JSON.parse((e as MessageEvent<string>).data) as Order;
+        const order = parse<Order>(e);
+        if (!order) return;
         queryClient.setQueryData<Order[]>(["orders"], (list) => {
           if (!list) return list;
           const i = list.findIndex((o) => o.id === order.id);
@@ -52,15 +69,19 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         void queryClient.invalidateQueries({ queryKey: ["couriers"] });
       });
       source.addEventListener("evidence", (e) => {
-        const item = JSON.parse((e as MessageEvent<string>).data) as EvidenceItem;
+        const item = parse<EvidenceItem>(e);
         void queryClient.invalidateQueries({ queryKey: ["evidence"] });
-        void queryClient.invalidateQueries({ queryKey: ["verify", item.courierId] });
+        void queryClient.invalidateQueries({ queryKey: ["couriers"] });
+        // Verification runs on demand only, so a stale "intact · N records" must be cleared, not refetched.
+        if (item) void queryClient.resetQueries({ queryKey: ["verify", item.courierId] });
       });
       source.onerror = () => {
         // EventSource retries by itself while CONNECTING; take over once it gives up.
         if (source?.readyState === EventSource.CLOSED && !disposed) {
           setEvents("down");
           source.close();
+          // EventSource hides the status code; an expired token shows up as a 401 here and logs out.
+          api.me().catch(() => {});
           retry = setTimeout(connect, backoff(attempt++));
         } else {
           setEvents("connecting");

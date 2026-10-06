@@ -68,6 +68,27 @@ export function EvidencePage() {
   );
 }
 
+/** The stored photo, or a clear placeholder if it can't be decoded (the hash check is what proves integrity). */
+function EvidencePhoto({ item, className, lazy }: { item: EvidenceItem; className: string; lazy?: boolean }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div className={`flex aspect-[4/3] items-center justify-center bg-surface-2 p-4 text-center text-xs text-muted ${className}`}>
+        Photo can't be displayed ({bytes(item.sizeBytes)}). Use "Verify chain" to check its hash.
+      </div>
+    );
+  }
+  return (
+    <img
+      src={api.photoUrl(item.id)}
+      alt={`Proof of delivery for ${item.orderCode}`}
+      loading={lazy ? "lazy" : undefined}
+      onError={() => setBroken(true)}
+      className={className}
+    />
+  );
+}
+
 function Badges({ item }: { item: EvidenceItem }) {
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -81,7 +102,7 @@ function EvidenceCard({ item, onOpen }: { item: EvidenceItem; onOpen: () => void
   return (
     <Card className="overflow-hidden">
       <button onClick={onOpen} className="block aspect-[4/3] w-full overflow-hidden bg-surface-2" title="Open">
-        <img src={api.photoUrl(item.id)} alt={`Proof of delivery for ${item.orderCode}`} loading="lazy" className="size-full object-cover transition hover:scale-[1.02]" />
+        <EvidencePhoto item={item} lazy className="size-full object-cover transition hover:scale-[1.02]" />
       </button>
       <div className="space-y-2 p-4">
         <div className="flex items-start justify-between gap-2">
@@ -133,7 +154,7 @@ function EvidenceDialog({ item, onClose }: { item: EvidenceItem; onClose: () => 
   return (
     <Modal title={`Evidence #${item.sequence} · ${item.orderCode}`} onClose={onClose} wide>
       <div className="grid gap-5 md:grid-cols-[3fr_2fr]">
-        <img src={api.photoUrl(item.id)} alt="Proof of delivery" className="w-full rounded-xl border border-line bg-surface-2 object-contain" />
+        <EvidencePhoto item={item} className="w-full rounded-xl border border-line bg-surface-2 object-contain" />
         <div className="space-y-3">
           <Badges item={item} />
           <dl className="space-y-2 text-sm">
