@@ -4,11 +4,11 @@
 
 ProofDrop uses **Play App Signing**. You sign uploads with your *upload key*; Google re-signs with the app signing key it keeps.
 
-- Upload keystore: kept **outside the repo** (e.g. `D:/workspaces/proofdrop-keys/upload-keystore.jks`).
+- Upload keystore: `keystore/upload-keystore.jks` inside the project; the whole `keystore/` folder is git-ignored.
 - `keystore.properties` at the repo root (git-ignored) points Gradle at it:
 
   ```properties
-  storeFile=D:/workspaces/proofdrop-keys/upload-keystore.jks
+  storeFile=keystore/upload-keystore.jks
   storePassword=…
   keyAlias=upload
   keyPassword=…

@@ -20,3 +20,6 @@ dist/
 *.tsbuildinfo
 backend/uploads/
 .env
+
+# Upload signing key (never commit)
+keystore/

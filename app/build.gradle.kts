@@ -30,7 +30,7 @@ android {
     signingConfigs {
         if (keystoreProps != null) {
             create("upload") {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
