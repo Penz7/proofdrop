@@ -61,7 +61,11 @@ class CaptureViewModel @Inject constructor(
     fun newCaptureFile(): File = evidence.newCaptureFile()
 
     fun onPhotoSaved(file: File) {
-        if (phase.value is CapturePhase.Sealing) return
+        // A second shutter tap must never seal a second record for the same delivery.
+        if (phase.value !is CapturePhase.Ready) {
+            file.delete()
+            return
+        }
         phase.value = CapturePhase.Sealing
         viewModelScope.launch {
             val bleVerified = uiState.value.beacon is BeaconUi.Verified

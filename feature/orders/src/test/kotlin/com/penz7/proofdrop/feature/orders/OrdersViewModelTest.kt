@@ -59,6 +59,7 @@ class OrdersViewModelTest {
         override suspend fun login(serverUrl: String, email: String, password: String) = LoginResult.Success
         override suspend fun startDemo() = Unit
         override suspend fun unsyncedEvidenceCount() = unsynced
+        override fun expireSession() = Unit
         override suspend fun logout() {
             loggedOut = true
         }

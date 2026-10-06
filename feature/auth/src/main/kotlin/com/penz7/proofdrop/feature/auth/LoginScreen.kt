@@ -28,6 +28,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -72,6 +74,14 @@ private fun LoginScreen(
     onLogin: () -> Unit,
     onDemo: () -> Unit,
 ) {
+    // Hide the keyboard on submit, otherwise it covers the error message below the form.
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val submit = {
+        keyboard?.hide()
+        focusManager.clearFocus()
+        onLogin()
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -107,7 +117,7 @@ private fun LoginScreen(
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onLogin() }),
+            keyboardActions = KeyboardActions(onDone = { submit() }),
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
@@ -122,7 +132,7 @@ private fun LoginScreen(
 
         state.error?.let { Text(it, color = DangerRed, textAlign = TextAlign.Center) }
 
-        Button(onClick = onLogin, enabled = !state.loading, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+        Button(onClick = submit, enabled = !state.loading, modifier = Modifier.fillMaxWidth().height(48.dp)) {
             if (state.loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             else Text("Sign in")
         }

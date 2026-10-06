@@ -41,6 +41,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -111,15 +113,26 @@ private fun CaptureScreen(
         controller.bindToLifecycle(lifecycleOwner)
     }
 
+    var capturing by remember { mutableStateOf(false) }
+
     fun takePhoto() {
+        if (capturing) return
+        capturing = true
         val file = newFile()
         controller.takePicture(
             ImageCapture.OutputFileOptions.Builder(file).build(),
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) = onPhotoSaved(file)
-                override fun onError(exception: ImageCaptureException) =
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    capturing = false
+                    onPhotoSaved(file)
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    capturing = false
+                    file.delete()
                     onCaptureError("Could not take the photo. Is a camera available? (${exception.imageCaptureError})")
+                }
             },
         )
     }
@@ -155,6 +168,7 @@ private fun CaptureScreen(
             when (val phase = state.phase) {
                 CapturePhase.Ready -> FilledIconButton(
                     onClick = ::takePhoto,
+                    enabled = !capturing,
                     modifier = Modifier.size(76.dp),
                     shape = CircleShape,
                 ) { Icon(Icons.Filled.CameraAlt, "Capture proof", Modifier.size(34.dp)) }

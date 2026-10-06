@@ -41,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.penz7.proofdrop.core.data.auth.AuthRepository
 import com.penz7.proofdrop.core.data.repository.EvidenceRepository
 import com.penz7.proofdrop.core.data.repository.LedgerEntry
 import com.penz7.proofdrop.core.data.repository.UploadStatus
@@ -64,7 +65,11 @@ import javax.inject.Inject
 @HiltViewModel
 class LedgerViewModel @Inject constructor(
     private val repository: EvidenceRepository,
+    auth: AuthRepository,
 ) : ViewModel() {
+
+    /** Demo mode never uploads, so records are shown as local instead of "Queued". */
+    val demo: Boolean = auth.currentUser.value?.demo == true
 
     private val _verification = MutableStateFlow<ChainVerification?>(null)
     /** null while a check is running. */
@@ -94,7 +99,7 @@ class LedgerViewModel @Inject constructor(
 internal fun LedgerRoute(showDebugTools: Boolean, viewModel: LedgerViewModel = hiltViewModel()) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val verification by viewModel.verification.collectAsStateWithLifecycle()
-    LedgerScreen(entries, verification, showDebugTools, viewModel::verify, viewModel::tamper)
+    LedgerScreen(entries, verification, viewModel.demo, showDebugTools, viewModel::verify, viewModel::tamper)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,6 +107,7 @@ internal fun LedgerRoute(showDebugTools: Boolean, viewModel: LedgerViewModel = h
 private fun LedgerScreen(
     entries: List<LedgerEntry>,
     verification: ChainVerification?,
+    demo: Boolean,
     showDebugTools: Boolean,
     onVerify: () -> Unit,
     onTamper: () -> Unit,
@@ -122,7 +128,7 @@ private fun LedgerScreen(
                     )
                 }
             }
-            items(entries, key = { it.record.id }) { EntryCard(it) }
+            items(entries, key = { it.record.id }) { EntryCard(it, demo) }
         }
     }
 }
@@ -169,7 +175,7 @@ private fun VerificationCard(
 private data class Quad(val color: Color, val icon: androidx.compose.ui.graphics.vector.ImageVector?, val title: String, val body: String)
 
 @Composable
-private fun EntryCard(entry: LedgerEntry) {
+private fun EntryCard(entry: LedgerEntry, demo: Boolean) {
     val r = entry.record
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -185,10 +191,9 @@ private fun EntryCard(entry: LedgerEntry) {
                 if (r.latitude != null) Icon(Icons.Outlined.LocationOn, "GPS tagged", Modifier.size(16.dp))
                 if (r.bleVerified) Icon(Icons.Outlined.Bluetooth, "Beacon verified", Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                when (entry.upload) {
-                    UploadStatus.PENDING -> StatusChip("Queued", MaterialTheme.colorScheme.secondary)
-                    UploadStatus.UPLOADED -> StatusChip("Synced", SuccessGreen)
-                    UploadStatus.REJECTED -> StatusChip("Rejected", DangerRed)
+                when {
+                    demo -> StatusChip("Local", MaterialTheme.colorScheme.secondary)
+                    else -> UploadChip(entry.upload)
                 }
             }
             Text(
@@ -204,5 +209,14 @@ private fun EntryCard(entry: LedgerEntry) {
                 Text(message, style = MaterialTheme.typography.bodySmall, color = DangerRed)
             }
         }
+    }
+}
+
+@Composable
+private fun UploadChip(upload: UploadStatus) {
+    when (upload) {
+        UploadStatus.PENDING -> StatusChip("Queued", MaterialTheme.colorScheme.secondary)
+        UploadStatus.UPLOADED -> StatusChip("Synced", SuccessGreen)
+        UploadStatus.REJECTED -> StatusChip("Rejected", DangerRed)
     }
 }

@@ -5,6 +5,7 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 -keep,includedescriptorclasses class com.penz7.proofdrop.**$$serializer { *; }
+-keep @kotlinx.serialization.Serializable class com.penz7.proofdrop.** { *; }
 
 # Retrofit: keep service interfaces and generic signatures used by suspend functions
 -keep,allowobfuscation,allowshrinking interface retrofit2.Call

@@ -2,9 +2,11 @@ package com.penz7.proofdrop.core.data.auth
 
 import android.content.Context
 import androidx.work.WorkManager
+import androidx.work.await
 import com.penz7.proofdrop.core.data.di.ApplicationScope
 import com.penz7.proofdrop.core.data.repository.EvidenceStorage
 import com.penz7.proofdrop.core.data.shift.ShiftController
+import com.penz7.proofdrop.core.data.sync.SyncScheduler
 import com.penz7.proofdrop.core.database.EvidenceDao
 import com.penz7.proofdrop.core.database.ProofDropDatabase
 import com.penz7.proofdrop.core.model.ChainHead
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
+import java.security.GeneralSecurityException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -54,6 +57,11 @@ interface AuthRepository {
 
     /** Evidence sealed on this phone but not yet accepted by the server; lost on logout. */
     suspend fun unsyncedEvidenceCount(): Int
+
+    /** The token was rejected: return to login but keep this courier's local data. */
+    fun expireSession()
+
+    /** Explicit sign-out: wipes everything on this phone. */
     suspend fun logout()
 }
 
@@ -67,6 +75,7 @@ class DefaultAuthRepository @Inject constructor(
     private val evidenceDao: EvidenceDao,
     private val evidenceStorage: EvidenceStorage,
     private val shift: ShiftController,
+    private val syncScheduler: SyncScheduler,
     @ApplicationScope scope: CoroutineScope,
 ) : AuthRepository {
 
@@ -83,15 +92,24 @@ class DefaultAuthRepository @Inject constructor(
         return try {
             val response = api.login(LoginRequest(email.trim(), password))
             if (response.user.role != Role.COURIER) return LoginResult.NotACourier
-            wipeLocalData()
+            // Read the chain head with the new token *before* committing the session, so a failure
+            // here leaves the user signed out instead of signed in with a wrong anchor.
+            val head = api.evidenceHead("Bearer ${response.accessToken}")
+
+            val sameCourier = sessionStore.lastUserId == response.user.id
+            val keepLocalChain = sameCourier && evidenceDao.last() != null
+            if (!sameCourier) wipeLocalData()
             sessionStore.save(Session(response.user, response.accessToken, demo = false))
-            // Continue this courier's server-side evidence chain instead of starting a new one.
-            sessionStore.chainHead = api.evidenceHead()
+            // Local records (kept after a token expiry) already continue from the stored anchor.
+            if (!keepLocalChain) sessionStore.chainHead = head
+            if (sameCourier) syncScheduler.requestSync()
             LoginResult.Success
         } catch (e: HttpException) {
             if (e.code() == 401) LoginResult.InvalidCredentials else LoginResult.Unreachable("Server error ${e.code()}")
         } catch (e: IOException) {
             LoginResult.Unreachable(e.message ?: "Cannot reach server")
+        } catch (e: GeneralSecurityException) {
+            LoginResult.Unreachable("Secure storage is unavailable on this device")
         }
     }
 
@@ -103,11 +121,18 @@ class DefaultAuthRepository @Inject constructor(
     override suspend fun unsyncedEvidenceCount(): Int =
         if (sessionStore.session.value?.demo == true) 0 else evidenceDao.pendingUpload().size
 
-    override suspend fun logout() {
+    override fun expireSession() {
         shift.stop()
-        WorkManager.getInstance(context).cancelAllWork()
-        wipeLocalData()
+        sessionStore.expire()
+    }
+
+    override suspend fun logout() {
+        // Clear the session first so background writers (sync, SSE, shift) see nobody signed in,
+        // then wait for queued work to stop before wiping, so no old rows sneak back in.
         sessionStore.clear()
+        shift.stop()
+        WorkManager.getInstance(context).cancelAllWork().await()
+        wipeLocalData()
     }
 
     private suspend fun wipeLocalData() = withContext(Dispatchers.IO) {

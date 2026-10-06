@@ -14,6 +14,7 @@ import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
@@ -42,8 +43,9 @@ interface ProofDropApi {
     @POST("devices/{id}/return")
     suspend fun returnDevice(@Path("id") id: String): Device
 
+    /** [authorization] lets login read the head with the new token before the session is saved. */
     @GET("evidence/head")
-    suspend fun evidenceHead(): ChainHead
+    suspend fun evidenceHead(@Header("Authorization") authorization: String): ChainHead
 
     /** 200 = stored, 409 = an earlier record must be uploaded first, 422 = rejected (hash mismatch, bad seal…). */
     @Multipart

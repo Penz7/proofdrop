@@ -64,7 +64,12 @@ Kotlin and TypeScript share the canonical string format and a test vector, so a 
 - The JWT is stored AES-GCM encrypted with a key held in the Android Keystore. Tokens passed as query parameters (WebSocket, SSE, `<img>`) are redacted from the app's HTTP logs.
 - Role guards on every backend route: couriers can only see and act on their own orders and chain.
 - Evidence photos live in app-private storage on the phone and in a private bucket on the server. The dashboard loads them through the authenticated API.
-- Cleartext HTTP is allowed only for the local demo setup; production must use HTTPS.
+- Uploaded media is identified by its magic bytes (JPEG/PNG/WebP only). Photos are served with `nosniff` and a sandboxing CSP, so a disguised HTML file can't run on the dashboard's origin.
+- Storage keys are built only from validated UUIDs, with a path-containment check (no traversal).
+- Query-string tokens are accepted only on the routes that need them (SSE streams, photo, WebSocket). Login is rate-limited.
+- A rejected token keeps the courier's unsynced evidence on the phone; it uploads after the same courier signs back in. Only an explicit sign-out wipes local data, and only after a confirmation if anything is unsynced.
+- Release builds allow cleartext HTTP only to local dev hosts (`10.0.2.2`, `127.0.0.1`, `localhost`). Debug builds also allow LAN IPs. Production must use HTTPS.
+- Demo accounts are seeded only when `SEED_DEMO_DATA=true` (set in `docker-compose.yml` for local use).
 
 ## Permissions (Android)
 

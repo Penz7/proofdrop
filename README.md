@@ -139,6 +139,8 @@ docs/ARCHITECTURE.md
 ## Known limitations
 
 - Single backend instance: realtime fan-out is in memory (Redis pub/sub is needed to scale out).
-- No refresh tokens (7-day JWT).
+- No refresh tokens (7-day JWT), and the role in the token isn't re-checked against the database.
+- Server-side chain verification loads a courier's photos into memory; fine for an MVP, should stream for large chains.
+- Swagger (`/api/docs`) is always on; disable it for production.
 - Public OpenStreetMap tiles are for demos only; use a tile provider in production.
 - Release builds use the debug signing key until a Play upload key is configured.

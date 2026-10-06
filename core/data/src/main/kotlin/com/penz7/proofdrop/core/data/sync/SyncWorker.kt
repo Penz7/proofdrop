@@ -14,6 +14,7 @@ import com.penz7.proofdrop.core.database.toEntity
 import com.penz7.proofdrop.core.database.toModel
 import com.penz7.proofdrop.core.model.CheckoutRequest
 import com.penz7.proofdrop.core.model.EvidenceUploadResult
+import com.penz7.proofdrop.core.model.OrderStatus
 import com.penz7.proofdrop.core.model.OrderStatusUpdate
 import com.penz7.proofdrop.core.network.ProofDropApi
 import com.penz7.proofdrop.core.network.session.SessionStore
@@ -59,6 +60,8 @@ class SyncWorker @AssistedInject constructor(
 
     private suspend fun syncOrders() {
         for (order in orderDao.pending()) {
+            // DELIVERED is set by the server when it accepts the evidence; never claim it without proof.
+            if (order.status == OrderStatus.DELIVERED) continue
             try {
                 val confirmed = api.updateStatus(order.id, OrderStatusUpdate(order.status, System.currentTimeMillis()))
                 orderDao.markSynced(order.id)
@@ -93,6 +96,12 @@ class SyncWorker @AssistedInject constructor(
     /** In sequence order: the server needs record n-1 before it accepts record n. */
     private suspend fun uploadEvidence() {
         for (entity in evidenceDao.pendingUpload()) {
+            val rejected = evidenceDao.firstRejected()
+            if (rejected != null && rejected.sequence < entity.sequence) {
+                // Retrying can't help: the server will never have the record this one links to.
+                evidenceDao.setUploadState(entity.id, UploadState.REJECTED, "Blocked: record #${rejected.sequence} was rejected")
+                continue
+            }
             val file = storage.file(entity.fileName)
             if (!file.exists()) {
                 evidenceDao.setUploadState(entity.id, UploadState.REJECTED, "Media file missing on device")
@@ -103,8 +112,11 @@ class SyncWorker @AssistedInject constructor(
                 file = MultipartBody.Part.createFormData("file", file.name, file.asRequestBody("image/jpeg".toMediaType())),
             )
             when {
-                response.isSuccessful ->
+                response.isSuccessful -> {
                     evidenceDao.setUploadState(entity.id, UploadState.UPLOADED, response.body()?.message)
+                    // The server marked the order delivered as part of accepting the proof.
+                    orderDao.markSynced(entity.orderId)
+                }
                 response.code() == 422 -> {
                     val reason = response.errorBody()?.string()
                         ?.let { runCatching { json.decodeFromString<EvidenceUploadResult>(it).message }.getOrNull() }

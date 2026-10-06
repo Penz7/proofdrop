@@ -19,6 +19,7 @@ import com.penz7.proofdrop.core.data.LocationTracker
 import com.penz7.proofdrop.core.data.R
 import com.penz7.proofdrop.core.data.repository.FleetRepository
 import com.penz7.proofdrop.core.data.repository.OrderRepository
+import com.penz7.proofdrop.core.network.session.SessionStore
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,13 +39,18 @@ class ShiftService : Service() {
     @Inject lateinit var location: LocationTracker
     @Inject lateinit var fleet: FleetRepository
     @Inject lateinit var orders: OrderRepository
+    @Inject lateinit var session: SessionStore
 
     private var scope: CoroutineScope? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (scope != null) return START_STICKY
+        if (scope != null) return START_NOT_STICKY
+        if (session.session.value == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         createChannels()
         try {
             ServiceCompat.startForeground(
@@ -53,8 +59,8 @@ class ShiftService : Service() {
                 ongoingNotification(),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
             )
-        } catch (e: SecurityException) {
-            // Location permission was revoked; a location service may not start without it.
+        } catch (e: Exception) {
+            // Permission revoked, or Android refused a background start (ForegroundServiceStartNotAllowedException).
             stopSelf()
             return START_NOT_STICKY
         }
@@ -64,9 +70,11 @@ class ShiftService : Service() {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main).apply {
             // Collecting the fleet keeps the WebSocket open, which reports our position.
             launch { fleet.observeFleet().collect { } }
-            launch { orders.liveAssignments().collect { order -> notifyAssignment(order.code, order.address) } }
+            launch { orders.liveAssignments().collect { order -> notifyAssignment(order.id, order.code, order.address) } }
         }
-        return START_STICKY
+        // Not sticky: Android 14+ forbids restarting a location service from the background,
+        // so after the process dies the courier resumes the shift from the app.
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -87,9 +95,15 @@ class ShiftService : Service() {
         )
     }
 
-    private fun openAppIntent(): PendingIntent? = packageManager.getLaunchIntentForPackage(packageName)?.let {
-        PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-    }
+    private fun openAppIntent(orderId: String? = null): PendingIntent? =
+        packageManager.getLaunchIntentForPackage(packageName)?.let { intent ->
+            intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            orderId?.let { intent.putExtra(EXTRA_ORDER_ID, it) }
+            PendingIntent.getActivity(
+                this, orderId?.hashCode() ?: 0, intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        }
 
     private fun ongoingNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_SHIFT)
         .setSmallIcon(R.drawable.ic_stat_proofdrop)
@@ -99,7 +113,7 @@ class ShiftService : Service() {
         .setContentIntent(openAppIntent())
         .build()
 
-    private fun notifyAssignment(code: String, address: String) {
+    private fun notifyAssignment(orderId: String, code: String, address: String) {
         val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (!canNotify) return
@@ -108,14 +122,16 @@ class ShiftService : Service() {
             .setContentTitle("New delivery $code")
             .setContentText(address)
             .setAutoCancel(true)
-            .setContentIntent(openAppIntent())
+            .setContentIntent(openAppIntent(orderId))
             .build()
         NotificationManagerCompat.from(this).notify(code.hashCode(), notification)
     }
 
-    private companion object {
-        const val ONGOING_ID = 1
-        const val CHANNEL_SHIFT = "shift"
-        const val CHANNEL_ASSIGNMENTS = "assignments"
+    companion object {
+        /** Extra on the launch intent: open this order's detail screen. */
+        const val EXTRA_ORDER_ID = "com.penz7.proofdrop.ORDER_ID"
+        private const val ONGOING_ID = 1
+        private const val CHANNEL_SHIFT = "shift"
+        private const val CHANNEL_ASSIGNMENTS = "assignments"
     }
 }

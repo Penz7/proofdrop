@@ -15,6 +15,8 @@ import com.penz7.proofdrop.core.model.EvidenceRecord
 import com.penz7.proofdrop.core.model.OrderStatus
 import com.penz7.proofdrop.core.network.session.SessionStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
@@ -79,8 +81,12 @@ class ChainedEvidenceRepository @Inject constructor(
     override fun newCaptureFile(): File = storage.newFile("${UUID.randomUUID()}.jpg")
 
     override suspend fun sealDelivery(orderId: String, photo: File, bleVerified: Boolean): EvidenceRecord {
-        val fileHash = withContext(Dispatchers.IO) { Sha256.of(photo.inputStream()) }
-        val fix = location.current()
+        // Hash the photo and get a fresh GPS fix in parallel; both take a moment.
+        val (fileHash, fix) = coroutineScope {
+            val hash = async(Dispatchers.IO) { Sha256.of(photo.inputStream()) }
+            val gps = async { location.freshFix() }
+            hash.await() to gps.await()
+        }
         val record = sealMutex.withLock {
             val draft = EvidenceDraft(
                 id = photo.nameWithoutExtension,
@@ -107,7 +113,8 @@ class ChainedEvidenceRepository @Inject constructor(
     }
 
     override suspend fun tamperWithLatestForDemo(): Boolean {
-        val last = dao.last() ?: return false
+        // In real mode, only edit a record the server already has, so the demo never blocks uploads.
+        val last = (if (session.session.value?.demo == true) dao.last() else dao.lastUploaded()) ?: return false
         dao.overwriteLatitude(last.id, (last.latitude ?: 0.0) + 0.01)
         return true
     }

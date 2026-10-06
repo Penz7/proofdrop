@@ -25,7 +25,8 @@ class MainViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             auth.sessionExpired.collect {
-                auth.logout()
+                // Keep unsynced proof on the phone; it uploads once the same courier signs back in.
+                auth.expireSession()
                 _messages.send("Your session expired. Please sign in again.")
             }
         }

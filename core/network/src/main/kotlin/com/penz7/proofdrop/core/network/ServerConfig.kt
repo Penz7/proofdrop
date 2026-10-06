@@ -24,7 +24,9 @@ class ServerConfig @Inject constructor(@ApplicationContext context: Context) {
     /** Returns false if [url] is not a valid http(s) URL. */
     fun update(url: String): Boolean {
         val normalized = url.trim().trimEnd('/')
-        if (normalized.toHttpUrlOrNull() == null) return false
+        val parsed = normalized.toHttpUrlOrNull() ?: return false
+        // Only scheme://host:port is supported; the API always lives under /api on that origin.
+        if (parsed.encodedPath != "/") return false
         prefs.edit().putString(KEY, normalized).apply()
         _baseUrl.value = normalized
         return true

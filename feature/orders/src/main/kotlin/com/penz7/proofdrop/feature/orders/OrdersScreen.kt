@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.BluetoothSearching
@@ -194,7 +195,15 @@ internal fun OrdersScreen(
                     else "Start your shift to receive assignments, or pull down to refresh.",
                 )
             } else {
+                val listState = rememberLazyListState()
+                // A new assignment is inserted at the top; LazyColumn keeps the old first item in view,
+                // which would hide the new one above the fold. Follow it when the user is near the top.
+                val firstId = state.orders.firstOrNull()?.id
+                LaunchedEffect(firstId) {
+                    if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+                }
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {

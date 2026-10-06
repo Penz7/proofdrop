@@ -13,11 +13,14 @@ import com.penz7.proofdrop.core.network.AssignmentStream
 import com.penz7.proofdrop.core.network.ProofDropApi
 import com.penz7.proofdrop.core.network.session.SessionStore
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
@@ -56,9 +59,18 @@ class OfflineFirstOrderRepository @Inject constructor(
 
     private val isDemo get() = session.session.value?.demo != false
 
-    // One SSE connection shared by the Orders screen and the shift service.
-    private val assignmentEvents = assignmentStream.events()
+    // One SSE connection shared by the Orders screen and the shift service, restarted whenever
+    // the signed-in courier changes so a new user never receives the previous user's stream.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val assignmentEvents = session.session
+        .map { it?.takeIf { s -> !s.demo }?.user?.id }
+        .distinctUntilChanged()
+        .flatMapLatest { userId -> if (userId == null) emptyFlow() else userEvents(userId) }
+        .shareIn(scope, SharingStarted.WhileSubscribed())
+
+    private fun userEvents(userId: String) = assignmentStream.events()
         .onEach { event ->
+            if (session.session.value?.user?.id != userId) return@onEach
             when (event) {
                 is AssignmentEvent.Assigned -> dao.upsert(listOf(event.order.toEntity()))
                 is AssignmentEvent.Unassigned -> dao.delete(event.orderId)
@@ -69,7 +81,6 @@ class OfflineFirstOrderRepository @Inject constructor(
             delay(min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * (attempt + 1)))
             true
         }
-        .shareIn(scope, SharingStarted.WhileSubscribed(5_000))
 
     override fun observeOrders(): Flow<List<Order>> =
         dao.observeAll()

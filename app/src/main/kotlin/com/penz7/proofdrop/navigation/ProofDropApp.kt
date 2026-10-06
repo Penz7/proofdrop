@@ -27,7 +27,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -56,6 +55,8 @@ private enum class TopLevel(val label: String, val icon: ImageVector, val route:
 
 @Composable
 fun ProofDropApp(
+    openOrderId: String? = null,
+    onOrderOpened: () -> Unit = {},
     navController: NavHostController = rememberNavController(),
     viewModel: MainViewModel = hiltViewModel(),
 ) {
@@ -79,6 +80,14 @@ fun ProofDropApp(
         }
     }
 
+    // Tapping a "new delivery" notification opens that order once the user is signed in.
+    LaunchedEffect(openOrderId, signedIn) {
+        if (openOrderId != null && signedIn) {
+            navController.navigate(OrderDetailDestination(openOrderId)) { launchSingleTop = true }
+            onOrderOpened()
+        }
+    }
+
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = backStackEntry?.destination
     val showBottomBar = TopLevel.entries.any { top -> destination?.hasRoute(top.routeClass) == true }
@@ -96,7 +105,8 @@ fun ProofDropApp(
                             selected = destination?.hierarchy?.any { it.hasRoute(top.routeClass) } == true,
                             onClick = {
                                 navController.navigate(top.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    // Orders is the root after sign-in, even when the graph started at Login.
+                                    popUpTo(OrdersDestination) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
                                 }

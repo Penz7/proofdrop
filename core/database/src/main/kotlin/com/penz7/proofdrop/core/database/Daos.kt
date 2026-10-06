@@ -64,6 +64,14 @@ interface EvidenceDao {
     @Query("SELECT * FROM evidence WHERE uploadState = 'PENDING' ORDER BY sequence ASC")
     suspend fun pendingUpload(): List<EvidenceEntity>
 
+    /** The earliest rejected record, if any: the server can never accept anything after it. */
+    @Query("SELECT * FROM evidence WHERE uploadState = 'REJECTED' ORDER BY sequence ASC LIMIT 1")
+    suspend fun firstRejected(): EvidenceEntity?
+
+    /** Latest record already accepted by the server (safe target for the tamper demo). */
+    @Query("SELECT * FROM evidence WHERE uploadState = 'UPLOADED' ORDER BY sequence DESC LIMIT 1")
+    suspend fun lastUploaded(): EvidenceEntity?
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(entity: EvidenceEntity)
 

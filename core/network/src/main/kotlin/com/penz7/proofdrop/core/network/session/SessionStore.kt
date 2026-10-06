@@ -42,10 +42,25 @@ class SessionStore @Inject constructor(
         _session.value = session
     }
 
+    /** Signs out completely (local data is wiped by the caller). */
     fun clear() {
         prefs.edit().clear().apply()
         _session.value = null
     }
+
+    /**
+     * The token is no longer valid: drop it but remember who was signed in, so a re-login
+     * by the same courier keeps their unsynced proof of delivery.
+     */
+    fun expire() {
+        val user = _session.value?.user ?: return
+        prefs.edit().remove(KEY_TOKEN).remove(KEY_USER).putString(KEY_LAST_USER_ID, user.id).apply()
+        _session.value = null
+    }
+
+    /** Id of the courier whose data is on this phone, even while signed out after expiry. */
+    val lastUserId: String?
+        get() = _session.value?.user?.id ?: prefs.getString(KEY_LAST_USER_ID, null)
 
     fun onUnauthorized() {
         if (_session.value?.demo == false) _unauthorized.tryEmit(Unit)
@@ -73,6 +88,7 @@ class SessionStore @Inject constructor(
         const val KEY_DEMO = "demo"
         const val KEY_HEAD_SEQ = "head_seq"
         const val KEY_HEAD_HASH = "head_hash"
+        const val KEY_LAST_USER_ID = "last_user_id"
         val GENESIS = "0".repeat(64)
     }
 }
