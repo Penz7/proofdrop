@@ -133,6 +133,18 @@ cd backend && npm run test:e2e       # login → orders → evidence upload (val
 cd dashboard && npm run typecheck && npm run build
 ```
 
+### End-to-end on a real phone
+
+`app/src/androidTest/.../RealDeviceE2ETest.kt` drives the real app on a device against the running stack, while playing the dispatcher through the API. It covers 13 scenarios: login errors, live SSE assignments, **real-camera proof capture verified by the server**, cancellation, reassignment, notification deep link, shift with live location and notifications, device checkout, the QR scanner and demo mode.
+
+```bash
+docker compose up -d
+adb reverse tcp:3000 tcp:3000
+./gradlew :app:connectedDebugAndroidTest
+```
+
+Grant ProofDrop its runtime permissions on the device first (camera, precise location, notifications, nearby devices). On MIUI, also allow "display pop-up windows while running in the background", and install the APKs with `adb install` if Gradle's install is blocked.
+
 ## Repository layout
 
 ```

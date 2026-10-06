@@ -27,8 +27,8 @@ jobs:
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
-      - name: Assemble debug + minified release
-        run: ./gradlew :app:assembleDebug :app:assembleRelease
+      - name: Assemble debug, minified release and device tests
+        run: ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
