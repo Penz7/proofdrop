@@ -73,8 +73,9 @@ export class StorageService implements OnModuleInit {
       }
       return await fs.readFile(this.localPath(key));
     } catch (e: unknown) {
-      const name = (e as { name?: string; code?: string })?.name ?? (e as { code?: string })?.code;
-      if (name === 'NoSuchKey' || name === 'ENOENT' || name === 'NotFound') return null;
+      // S3 SDK errors carry the reason in `name`; Node fs errors have name "Error" and use `code`.
+      const { name, code } = (e ?? {}) as { name?: string; code?: string };
+      if (name === 'NoSuchKey' || name === 'NotFound' || code === 'ENOENT') return null;
       throw e;
     }
   }

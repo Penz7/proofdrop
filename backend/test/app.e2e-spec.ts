@@ -1,17 +1,19 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { ChainRecord, seal, sha256Hex } from '../src/evidence/evidence-chain';
 import { configureApp } from '../src/main';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
  * Runs against a real, migrated + seeded database (DATABASE_URL, e.g. docker compose postgres).
  * Skipped when DATABASE_URL is not set. Creates its own orders and devices, so it can be re-run.
  *
- * Evidence is uploaded as courier3 on purpose: courier1 is the account used for manual testing
- * on a phone, and appending to its chain here would make the phone's next upload collide.
+ * Evidence is uploaded by a courier created fresh for each run, so its chain starts empty and
+ * never collides with the seeded accounts used for manual testing (or with earlier runs).
  */
 const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
 
@@ -74,7 +76,11 @@ describeDb('ProofDrop API (e2e)', () => {
     await app.init();
     server = app.getHttpServer();
 
-    courier = await login('courier3@proofdrop.dev', 'courier123');
+    const email = `e2e-${randomUUID()}@proofdrop.dev`;
+    await app.get(PrismaService).user.create({
+      data: { email, name: 'E2E Courier', role: 'COURIER', passwordHash: await bcrypt.hash('e2e-password', 8) },
+    });
+    courier = await login(email, 'e2e-password');
     otherCourier = await login('courier2@proofdrop.dev', 'courier123');
     dispatcherToken = (await login('dispatcher@proofdrop.dev', 'dispatch123')).token;
   });

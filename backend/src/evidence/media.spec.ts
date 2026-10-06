@@ -31,6 +31,11 @@ describe('StorageService (local driver)', () => {
     expect((await storage.get('courier/000001-x.jpg'))?.toString()).toBe('hi');
   });
 
+  it('returns null for a missing file instead of failing', async () => {
+    // fs errors report ENOENT in `code` (their `name` is just "Error").
+    await expect(storage.get('courier/000999-missing.jpg')).resolves.toBeNull();
+  });
+
   it('refuses keys that escape the upload dir, including prefix-sharing siblings', async () => {
     await expect(storage.put('../evil.jpg', Buffer.from('x'), 'image/jpeg')).rejects.toThrow('Invalid storage key');
     const sibling = `../${path.basename(uploadDir)}-old/evil.jpg`;

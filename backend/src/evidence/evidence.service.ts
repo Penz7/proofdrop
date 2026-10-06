@@ -75,7 +75,13 @@ export class EvidenceService {
     const taken = await this.prisma.evidence.findUnique({
       where: { courierId_sequence: { courierId, sequence: record.sequence } },
     });
-    if (taken) reject('Sequence already used');
+    if (taken) {
+      // An overlapping retry of this same record may have committed since step 2.
+      if (taken.id === record.id && taken.recordHash === record.recordHash) {
+        return { accepted: true, message: 'Already stored' };
+      }
+      reject('Sequence already used');
+    }
 
     // 9. Store (the key only contains validated UUIDs and digits, so it can't escape the bucket/dir)
     const storageKey = `${courierId}/${String(record.sequence).padStart(6, '0')}-${record.id}.jpg`;
