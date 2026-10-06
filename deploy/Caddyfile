@@ -1,0 +1,31 @@
+# ProofDrop production reverse proxy. Caddy obtains and renews the HTTPS certificate for $DOMAIN.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# API (REST + SSE). flush_interval -1 streams Server-Sent Events immediately.
+	handle /api/* {
+		reverse_proxy backend:3000 {
+			flush_interval -1
+		}
+	}
+
+	# Fleet WebSocket (Caddy upgrades the connection automatically).
+	handle /fleet* {
+		reverse_proxy backend:3000
+	}
+
+	# Everything else is the dispatcher dashboard (static SPA served by nginx).
+	handle {
+		encode zstd gzip
+		reverse_proxy dashboard:80
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

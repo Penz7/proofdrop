@@ -1,0 +1,93 @@
+# ProofDrop production stack. See docs/DEPLOY.md.
+#   cp .env.prod.example .env   # then fill in every value
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Only Caddy is reachable from the internet (80/443). PostgreSQL and MinIO have no published ports.
+name: proofdrop-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: proofdrop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: proofdrop
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proofdrop -d proofdrop"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # S3-compatible storage for evidence photos (Bitnami's packaging of MinIO). To use AWS S3 or
+  # Cloudflare R2 instead, drop this service and point S3_ENDPOINT/keys at the provider.
+  minio:
+    image: bitnamilegacy/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      MINIO_DEFAULT_BUCKETS: evidence
+    volumes:
+      - miniodata:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://proofdrop:${POSTGRES_PASSWORD}@postgres:5432/proofdrop?schema=public
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: evidence
+      SEED_DEMO_DATA: "false"
+      SWAGGER_ENABLED: "false"
+      CORS_ORIGINS: https://${DOMAIN:?set DOMAIN in .env}
+      # Caddy sits in front of the API.
+      TRUST_PROXY: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - dashboard
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:
+  caddy_data:
+  caddy_config:
