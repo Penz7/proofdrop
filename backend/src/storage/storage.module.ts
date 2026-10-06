@@ -86,7 +86,10 @@ export class StorageService implements OnModuleInit {
 
   private localPath(key: string): string {
     const resolved = path.resolve(this.uploadDir, key);
-    if (!resolved.startsWith(this.uploadDir)) throw new Error('Invalid storage key');
+    // path.relative catches both "../" and sibling directories that merely share a prefix
+    // (e.g. /data/uploads-old when UPLOAD_DIR is /data/uploads), which startsWith() would not.
+    const relative = path.relative(this.uploadDir, resolved);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Invalid storage key');
     return resolved;
   }
 }

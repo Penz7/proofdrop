@@ -21,5 +21,6 @@ COPY --from=build /app/prisma ./prisma
 COPY package.json ./
 USER node
 EXPOSE 3000
-# Apply pending migrations, make sure the seed data exists, then start.
-CMD ["sh", "-c", "npx prisma migrate deploy && node prisma/seed.js && node dist/main.js"]
+# Apply pending migrations, then start. Demo accounts (known passwords!) are only seeded when
+# SEED_DEMO_DATA=true, which docker-compose.yml sets for local development.
+CMD ["sh", "-c", "npx prisma migrate deploy && if [ x$SEED_DEMO_DATA = xtrue ]; then node prisma/seed.js; fi && node dist/main.js"]

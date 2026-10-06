@@ -22,7 +22,8 @@ type FleetSocket = WebSocket & { user?: AuthUser; unsubscribe?: () => void };
  * Raw WebSocket at `/fleet?access_token=<JWT>` (NestJS WsAdapter, `{event, data}` envelopes).
  * Everyone receives `fleet` snapshots; couriers send `position` reports.
  */
-@WebSocketGateway({ path: '/fleet' })
+// Position reports are tiny; cap frames so a client can't make us buffer megabytes.
+@WebSocketGateway({ path: '/fleet', maxPayload: 4 * 1024 })
 export class FleetGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(FleetGateway.name);
 
@@ -32,7 +33,8 @@ export class FleetGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   async handleConnection(client: FleetSocket, request: IncomingMessage) {
-    const token = extractToken(request.headers as Record<string, unknown>, request.url);
+    // Browsers cannot set headers on a WebSocket, so the query token is allowed here.
+    const token = extractToken(request.headers as Record<string, unknown>, request.url, true);
     try {
       if (!token) throw new Error('missing token');
       client.user = payloadToUser(await this.jwt.verifyAsync<JwtPayload>(token));

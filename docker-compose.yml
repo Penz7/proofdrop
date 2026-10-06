@@ -52,6 +52,8 @@ services:
       S3_ACCESS_KEY: proofdrop
       S3_SECRET_KEY: proofdrop-secret
       S3_BUCKET: evidence
+      # Local dev only: creates the seed accounts from docs/API.md on start.
+      SEED_DEMO_DATA: "true"
     ports:
       - "3000:3000"
     depends_on:

@@ -6,7 +6,7 @@ The NestJS backend (`backend/`), the React dispatcher dashboard (`dashboard/`) a
 
 - Base URL: `http://<host>:3000`. REST lives under `/api`. The WebSocket is at `/fleet` (no `/api` prefix).
 - JSON everywhere. **All timestamps are epoch milliseconds (numbers)**, never ISO strings. The Android models use `Long`.
-- Auth: `Authorization: Bearer <JWT>`. Clients that cannot set headers (browser `EventSource`, `<img>`, WebSocket) pass the token as `?access_token=<JWT>`.
+- Auth: `Authorization: Bearer <JWT>`. `?access_token=<JWT>` is accepted **only** where clients cannot set headers: the two SSE streams (`/api/assignments`, `/api/dispatch/events`), the evidence photo (`<img>`), and the `/fleet` WebSocket. Everywhere else a query token is ignored (`401`), so tokens stay out of access logs.
 - Roles: `COURIER` (Android app) and `DISPATCHER` (web dashboard). A wrong role gets `403`, a missing or invalid token gets `401`.
 - Errors use NestJS's default shape: `{ "statusCode": 409, "message": "...", "error": "Conflict" }`.
 - Ids: users and orders use UUIDs. Devices use human ids (`DEV-001`). Evidence ids are client-generated UUIDs.
@@ -82,7 +82,7 @@ Each courier has **one continuous chain on the server**, numbered from 1, across
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/api/auth/login` | `{ email, password }` | `200 { accessToken, user: User }` · `401` |
+| POST | `/api/auth/login` | `{ email, password }` | `200 { accessToken, user: User }` · `401` · `429` after 10 attempts per minute for the same email + IP |
 | GET | `/api/auth/me` | | `200 User` |
 
 JWT lifetime: 7 days (MVP, no refresh tokens).
@@ -106,8 +106,8 @@ JWT lifetime: 7 days (MVP, no refresh tokens).
 
 ### `POST /api/evidence` rules, checked in this order
 
-1. Missing part → `422 { accepted:false, message:"Missing record or file" }`
-2. Same `id` already stored with the same `recordHash` → `200 { accepted:true, message:"Already stored" }` (idempotent retry)
+1. Missing part → `422 { accepted:false, message:"Missing record or file" }`. Malformed record → `422 "Invalid record"`: `id`/`orderId` must be UUIDs, hashes 64 lowercase hex, `fileName` `[A-Za-z0-9._-]{1,128}`, `sequence` 1…2³¹−1, `capturedAt` a positive integer, and lat/lng in range. A file that isn't JPEG/PNG/WebP by its magic bytes → `422 "Unsupported media type…"` (the declared MIME type is ignored)
+2. Same `id` already stored with the same `recordHash` → `200 { accepted:true, message:"Already stored" }` (idempotent retry, also when two identical uploads race)
 3. `sha256(file) != record.fileSha256` → `422 "File hash mismatch"`
 4. Recomputed hash ≠ `record.recordHash` → `422 "Record seal is invalid"`
 5. Order not assigned to me → `422 "Order not assigned to you"`
@@ -133,7 +133,7 @@ JWT lifetime: 7 days (MVP, no refresh tokens).
 | GET | `/api/dispatch/devices` | Same as the courier list |
 | POST | `/api/dispatch/devices` | `{ id, name, type, serial, batteryPct }` → `201 Device` · duplicate id → `409` |
 | GET | `/api/dispatch/evidence?courierId=&orderId=` | `EvidenceRecord & { courierId, courierName, orderCode, receivedAt, sizeBytes }[]`, newest first |
-| GET | `/api/dispatch/evidence/:id/photo` | The JPEG bytes (`?access_token=` allowed so `<img src>` works) |
+| GET | `/api/dispatch/evidence/:id/photo` | The image bytes (`?access_token=` allowed so `<img src>` works). Served with `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox` |
 | GET | `/api/dispatch/evidence/verify?courierId=` | Re-downloads and re-hashes every photo and walks the chain → `{ valid: true, count }` or `{ valid: false, atSequence, reason }` |
 | GET | `/api/dispatch/events` | **SSE**: `event: order` (`Order`) on any order change, `event: evidence` (the evidence list item) on each accepted upload, `: ping` every 25 s |
 
@@ -145,9 +145,11 @@ Raw WebSocket (NestJS `WsAdapter`) with JSON messages in the form `{ "event": st
   `{ "event": "fleet", "data": CourierPosition[] }`, covering couriers seen in the last 10 minutes. A courier silent for more than 2 minutes is reported as `OFFLINE`.
 - Courier → server: `{ "event": "position", "data": { "latitude": number, "longitude": number, "status"?: CourierStatus } }`. The server fills `courierId`, `name` and `updatedAt` from the token and also stores the last position on the user row.
 - Dispatcher connections only receive messages.
-- An invalid token closes the socket with code `4401`.
+- An invalid token closes the socket with code `4401`. Frames over 4 KB close it with `1009`. Position reports arriving less than 1 s apart are ignored.
 
 ## Seed accounts (local dev only)
+
+The Docker image only creates these when `SEED_DEMO_DATA=true` (set in `docker-compose.yml`), so a production deployment never ships known passwords. `npx prisma db seed` always runs the seed.
 
 | Role | Email | Password |
 |---|---|---|

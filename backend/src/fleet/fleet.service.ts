@@ -17,6 +17,7 @@ const VISIBLE_FOR_MS = 10 * 60_000;
 const BROADCAST_INTERVAL_MS = 1_000;
 // Re-broadcast now and then even without new reports so stale couriers flip to OFFLINE.
 const STALENESS_REFRESH_MS = 30_000;
+const MIN_REPORT_INTERVAL_MS = 1_000;
 
 /** Live courier positions: in memory for speed, last position persisted on the user row. */
 @Injectable()
@@ -54,6 +55,9 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
 
   async report(courier: { id: string; name: string }, latitude: number, longitude: number, status: CourierStatus) {
     const now = Date.now();
+    // Each report also writes the user row; ignore bursts faster than the app's 5 s cadence allows.
+    const previous = this.positions.get(courier.id);
+    if (previous && now - previous.updatedAt < MIN_REPORT_INTERVAL_MS) return;
     this.positions.set(courier.id, { courierId: courier.id, name: courier.name, latitude, longitude, status, updatedAt: now });
     this.dirty = true;
     try {

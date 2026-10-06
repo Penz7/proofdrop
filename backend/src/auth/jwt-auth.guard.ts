@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { AuthedRequest, extractToken, JwtPayload, payloadToUser } from './auth.types';
-import { IS_PUBLIC } from './decorators';
+import { ALLOW_QUERY_TOKEN, IS_PUBLIC } from './decorators';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -17,7 +17,8 @@ export class JwtAuthGuard implements CanActivate {
     if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<AuthedRequest>();
-    const token = extractToken(request.headers, request.originalUrl ?? request.url);
+    const allowQuery = this.reflector.getAllAndOverride<boolean>(ALLOW_QUERY_TOKEN, [context.getHandler(), context.getClass()]);
+    const token = extractToken(request.headers, request.originalUrl ?? request.url, allowQuery === true);
     if (!token) throw new UnauthorizedException('Missing access token');
     try {
       request.user = payloadToUser(await this.jwt.verifyAsync<JwtPayload>(token));

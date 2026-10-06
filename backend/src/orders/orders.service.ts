@@ -51,12 +51,14 @@ export class OrdersService {
     }
     if (order.status === status) return toOrderDto(await this.get(orderId));
 
-    const updated = await this.prisma.order.update({
-      where: { id: orderId },
+    // Conditional on what we just read, so a concurrent reassignment or delivery wins cleanly
+    // instead of being overwritten by this courier's stale view of the order.
+    const { count } = await this.prisma.order.updateMany({
+      where: { id: orderId, courierId, status: order.status },
       data: { status, deliveredAt: status === 'DELIVERED' ? new Date() : order.deliveredAt },
-      include,
     });
-    const dto = toOrderDto(updated);
+    if (count === 0) throw new ConflictException('Order changed meanwhile, refresh and try again');
+    const dto = toOrderDto(await this.get(orderId));
     this.events.emitDispatch({ type: 'order', data: dto });
     return dto;
   }
@@ -90,7 +92,7 @@ export class OrdersService {
     if (order.status === 'DELIVERED') throw new ConflictException('Delivered orders cannot be reassigned');
     if (courierId) await this.requireCourier(courierId);
 
-    const data: Prisma.OrderUncheckedUpdateInput = courierId
+    const data: Prisma.OrderUncheckedUpdateManyInput = courierId
       ? {
           courierId,
           // A fresh assignment (or reassignment) restarts the delivery for the new courier.
@@ -99,8 +101,13 @@ export class OrdersService {
         }
       : { courierId: null, status: 'CREATED', assignedAt: null };
 
-    const updated = await this.prisma.order.update({ where: { id: orderId }, data, include });
-    const dto = toOrderDto(updated);
+    // Only if nobody delivered or reassigned it since we read it (evidence can land any time).
+    const { count } = await this.prisma.order.updateMany({
+      where: { id: orderId, courierId: order.courierId, status: { not: 'DELIVERED' } },
+      data,
+    });
+    if (count === 0) throw new ConflictException('Order changed meanwhile, refresh and try again');
+    const dto = toOrderDto(await this.get(orderId));
     this.events.emitDispatch({ type: 'order', data: dto });
     if (order.courierId && order.courierId !== courierId) {
       this.events.emitCourier({ courierId: order.courierId, type: 'unassigned', data: { id: orderId } });

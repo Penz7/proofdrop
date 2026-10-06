@@ -1,20 +1,39 @@
-import { Body, Controller, Get, Global, HttpCode, Injectable, Module, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, ExecutionContext, Get, Global, HttpCode, Injectable, Module, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import * as bcrypt from 'bcryptjs';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { Throttle, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, JwtPayload } from './auth.types';
 import { CurrentUser, Public } from './decorators';
 
 export class LoginDto {
   @IsEmail()
+  @MaxLength(254)
   email: string;
 
   @IsString()
   @MinLength(1)
+  @MaxLength(128)
   password: string;
+}
+
+/**
+ * Limits password guessing per (client IP, email). Keying on the email too means users behind
+ * the same proxy/NAT (e.g. the dashboard's nginx) don't lock each other out.
+ */
+@Injectable()
+export class LoginThrottlerGuard extends ThrottlerGuard {
+  protected async getTracker(req: Record<string, any>): Promise<string> {
+    const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
+    return `${req.ip}:${email}`;
+  }
+
+  protected generateKey(context: ExecutionContext, tracker: string, throttlerName: string): string {
+    return `${throttlerName}:${tracker}`;
+  }
 }
 
 @Injectable()
@@ -46,6 +65,8 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
+  @UseGuards(LoginThrottlerGuard)
+  @Throttle({ login: { limit: 10, ttl: 60_000 } })
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
   }
@@ -60,6 +81,7 @@ export class AuthController {
 @Global()
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{ name: 'login', limit: 10, ttl: 60_000 }]),
     JwtModule.registerAsync({
       global: true,
       inject: [ConfigService],

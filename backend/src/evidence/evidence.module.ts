@@ -1,17 +1,17 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Module, Param, ParseUUIDPipe, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsOptional, IsUUID } from 'class-validator';
 import { Response } from 'express';
 import { memoryStorage } from 'multer';
 import type { AuthUser } from '../auth/auth.types';
-import { CurrentUser, Roles } from '../auth/decorators';
+import { AllowQueryToken, CurrentUser, Roles } from '../auth/decorators';
 import { OrdersModule } from '../orders/orders.module';
 import { EvidenceService } from './evidence.service';
 
 export class EvidenceQueryDto {
   @IsOptional() @IsUUID() courierId?: string;
-  @IsOptional() @IsString() orderId?: string;
+  @IsOptional() @IsUUID() orderId?: string;
 }
 
 export class VerifyQueryDto {
@@ -35,7 +35,12 @@ export class CourierEvidenceController {
   /** multipart/form-data: `record` (JSON string) + `file` (JPEG). */
   @Post()
   @HttpCode(200)
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_PHOTO_BYTES } }))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_PHOTO_BYTES, files: 1, fields: 4, fieldSize: 64 * 1024 },
+    }),
+  )
   upload(
     @CurrentUser() user: AuthUser,
     @Body('record') record: string | undefined,
@@ -63,10 +68,15 @@ export class DispatchEvidenceController {
   }
 
   @Get(':id/photo')
-  async photo(@Param('id') id: string, @Res() res: Response) {
+  @AllowQueryToken()
+  async photo(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
     const { body, contentType } = await this.evidence.photo(id);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    // Uploaded bytes are served from the API origin: never let a browser treat them as a page.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Content-Disposition', 'inline');
     res.send(body);
   }
 }

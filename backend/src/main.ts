@@ -7,7 +7,10 @@ import { AppModule } from './app.module';
 
 export function configureApp(app: import('@nestjs/common').INestApplication) {
   app.setGlobalPrefix('api');
-  app.enableCors();
+  // Bearer tokens (not cookies) are used, so an open CORS policy is acceptable for local dev;
+  // set CORS_ORIGINS (comma-separated) to lock it down in production.
+  const origins = process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
+  app.enableCors(origins?.length ? { origin: origins } : undefined);
   app.useWebSocketAdapter(new WsAdapter(app));
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableShutdownHooks();

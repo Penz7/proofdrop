@@ -38,9 +38,10 @@ export class EvidenceService {
     rawRecord: string | undefined,
     file: { buffer: Buffer; mimetype?: string } | undefined,
   ): Promise<UploadResult> {
-    // 1. Both parts present and the record parses
+    // 1. Both parts present, the record is well-formed and the file really is an image
     if (!rawRecord || !file?.buffer?.length) reject('Missing record or file');
     const record = parseRecord(rawRecord!);
+    const contentType = sniffImageType(file!.buffer) ?? reject('Unsupported media type: upload a JPEG, PNG or WebP photo');
 
     // 2. Idempotent retry
     const existing = await this.prisma.evidence.findUnique({ where: { id: record.id } });
@@ -76,8 +77,7 @@ export class EvidenceService {
     });
     if (taken) reject('Sequence already used');
 
-    // 9. Store
-    const contentType = file!.mimetype && file!.mimetype !== 'application/octet-stream' ? file!.mimetype : 'image/jpeg';
+    // 9. Store (the key only contains validated UUIDs and digits, so it can't escape the bucket/dir)
     const storageKey = `${courierId}/${String(record.sequence).padStart(6, '0')}-${record.id}.jpg`;
     await this.storage.put(storageKey, file!.buffer, contentType);
     try {
@@ -104,8 +104,15 @@ export class EvidenceService {
       await this.orders.markDeliveredByEvidence(record.orderId);
       this.events.emitDispatch({ type: 'evidence', data: toEvidenceListItem(saved) });
     } catch (e) {
-      // Lost a race with a concurrent upload of the same sequence.
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') reject('Sequence already used');
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        // Lost a race. If the winner is this very record (a retry that overlapped the first
+        // attempt), the upload succeeded; otherwise another record took the sequence.
+        const winner = await this.prisma.evidence.findUnique({ where: { id: record.id } });
+        if (winner && winner.courierId === courierId && winner.recordHash === record.recordHash) {
+          return { accepted: true, message: 'Already stored' };
+        }
+        reject('Sequence already used');
+      }
       throw e;
     }
     return { accepted: true, message: `Stored evidence #${record.sequence}` };
@@ -153,23 +160,38 @@ export class EvidenceService {
   }
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHA256 = /^[0-9a-f]{64}$/;
+const FILE_NAME = /^[A-Za-z0-9._-]{1,128}$/;
+const MAX_SEQUENCE = 2_147_483_647; // Postgres INT
+
+/**
+ * Strict shape check. Every string that ends up in a storage key, a DB column or the canonical
+ * hash is constrained, so a crafted record can't traverse paths or overflow columns.
+ */
 function parseRecord(raw: string): ChainRecord {
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    return reject('Missing record or file');
+    return reject('Invalid record');
   }
+  if (typeof value !== 'object' || value === null) reject('Invalid record');
   const r = value as Record<string, unknown>;
-  const str = (k: string) => typeof r[k] === 'string' && (r[k] as string).length > 0;
-  const num = (k: string) => typeof r[k] === 'number' && Number.isFinite(r[k]);
-  const optNum = (k: string) => r[k] === null || r[k] === undefined || num(k);
+  const matches = (k: string, re: RegExp) => typeof r[k] === 'string' && re.test(r[k] as string);
+  const coord = (k: string, limit: number) =>
+    r[k] === null || r[k] === undefined || (typeof r[k] === 'number' && Number.isFinite(r[k]) && Math.abs(r[k] as number) <= limit);
   const ok =
-    str('id') && num('sequence') && Number.isInteger(r.sequence) && (r.sequence as number) >= 1 &&
-    str('orderId') && str('fileName') && str('fileSha256') && num('capturedAt') &&
-    optNum('latitude') && optNum('longitude') && typeof r.bleVerified === 'boolean' &&
-    str('previousHash') && str('recordHash');
-  if (!ok) reject('Missing record or file');
+    matches('id', UUID) &&
+    Number.isInteger(r.sequence) && (r.sequence as number) >= 1 && (r.sequence as number) <= MAX_SEQUENCE &&
+    matches('orderId', UUID) &&
+    matches('fileName', FILE_NAME) &&
+    matches('fileSha256', SHA256) &&
+    Number.isSafeInteger(r.capturedAt) && (r.capturedAt as number) > 0 &&
+    coord('latitude', 90) && coord('longitude', 180) &&
+    typeof r.bleVerified === 'boolean' &&
+    matches('previousHash', SHA256) && matches('recordHash', SHA256);
+  if (!ok) reject('Invalid record');
   return {
     id: r.id as string,
     sequence: r.sequence as number,
@@ -183,4 +205,12 @@ function parseRecord(raw: string): ChainRecord {
     previousHash: r.previousHash as string,
     recordHash: r.recordHash as string,
   };
+}
+
+/** Identifies the image by its magic bytes; the client-declared MIME type is never trusted. */
+export function sniffImageType(buf: Buffer): 'image/jpeg' | 'image/png' | 'image/webp' | null {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
 }

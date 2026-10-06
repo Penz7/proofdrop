@@ -17,11 +17,15 @@ export interface JwtPayload {
 
 export type AuthedRequest = Request & { user: AuthUser };
 
-/** Bearer header first, then `?access_token=` for EventSource, <img> and WebSocket clients. */
-export function extractToken(headers: Record<string, unknown>, url: string | undefined): string | null {
+/**
+ * Bearer header first. `?access_token=` is only honoured when [allowQuery] is set: on the few
+ * routes used by EventSource, <img> and WebSocket clients, which cannot send headers. Elsewhere a
+ * token in the URL would end up in proxy and access logs for no reason.
+ */
+export function extractToken(headers: Record<string, unknown>, url: string | undefined, allowQuery: boolean): string | null {
   const auth = headers['authorization'];
   if (typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7).trim() || null;
-  if (url) {
+  if (allowQuery && url) {
     const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
     const token = new URLSearchParams(query).get('access_token');
     if (token) return token;

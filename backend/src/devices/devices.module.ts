@@ -13,7 +13,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { DeviceType, Prisma } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { courierSelect, toDeviceDto } from '../common/mappers';
@@ -28,9 +28,9 @@ export class CheckoutDto {
 
 export class CreateDeviceDto {
   @Matches(/^[A-Z0-9-]{3,32}$/, { message: 'id must look like DEV-001' }) id: string;
-  @IsString() @IsNotEmpty() name: string;
+  @IsString() @IsNotEmpty() @MaxLength(80) name: string;
   @IsEnum(DeviceType) type: DeviceType;
-  @IsString() @IsNotEmpty() serial: string;
+  @IsString() @IsNotEmpty() @MaxLength(64) serial: string;
   @Type(() => Number) @IsInt() @Min(0) @Max(100) batteryPct: number;
 }
 
